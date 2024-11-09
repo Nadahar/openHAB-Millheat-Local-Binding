@@ -23,7 +23,10 @@ import org.openhab.core.thing.ThingTypeUID;
 import org.openhab.core.thing.binding.BaseThingHandlerFactory;
 import org.openhab.core.thing.binding.ThingHandler;
 import org.openhab.core.thing.binding.ThingHandlerFactory;
+import org.osgi.service.component.ComponentContext;
+import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Reference;
 
 /**
  * The {@link MillHandlerFactory} is responsible for creating things and thing
@@ -35,7 +38,18 @@ import org.osgi.service.component.annotations.Component;
 @Component(configurationPid = "binding.milllan", service = ThingHandlerFactory.class)
 public class MillHandlerFactory extends BaseThingHandlerFactory {
 
-    private static final Set<ThingTypeUID> SUPPORTED_THING_TYPES_UIDS = Set.of(THING_TYPE_SAMPLE);
+    private static final Set<ThingTypeUID> SUPPORTED_THING_TYPES_UIDS = Set.of(THING_TYPE_PANEL_HEATER);
+
+    private final MillHTTPClientProvider httpClientProvider;
+
+    @Activate
+    public MillHandlerFactory(
+        @Reference MillHTTPClientProvider httpClientProvider,
+        ComponentContext componentContext
+    ) {
+        super.activate(componentContext);
+        this.httpClientProvider = httpClientProvider;
+    }
 
     @Override
     public boolean supportsThingType(ThingTypeUID thingTypeUID) {
@@ -46,8 +60,8 @@ public class MillHandlerFactory extends BaseThingHandlerFactory {
     protected @Nullable ThingHandler createHandler(Thing thing) {
         ThingTypeUID thingTypeUID = thing.getThingTypeUID();
 
-        if (THING_TYPE_SAMPLE.equals(thingTypeUID)) {
-            return new MillHandler(thing);
+        if (THING_TYPE_PANEL_HEATER.equals(thingTypeUID)) {
+            return new MillHandler(thing, httpClientProvider);
         }
 
         return null;
