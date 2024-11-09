@@ -13,14 +13,22 @@
 package org.openhab.binding.milllan.internal;
 
 import static org.openhab.binding.milllan.internal.MillBindingConstants.*;
+import static org.openhab.binding.milllan.internal.MillUtil.isBlank;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
+import org.openhab.binding.milllan.internal.api.MillAPITool;
+import org.openhab.binding.milllan.internal.api.response.ControlStatusResponse;
+import org.openhab.binding.milllan.internal.api.response.StatusResponse;
+import org.openhab.binding.milllan.internal.exception.MillException;
+import org.openhab.core.library.types.QuantityType;
+import org.openhab.core.library.unit.SIUnits;
+import org.openhab.core.library.unit.Units;
 import org.openhab.core.thing.ChannelUID;
 import org.openhab.core.thing.Thing;
 import org.openhab.core.thing.ThingStatus;
+import org.openhab.core.thing.ThingStatusDetail;
 import org.openhab.core.thing.binding.BaseThingHandler;
 import org.openhab.core.types.Command;
-import org.openhab.core.types.RefreshType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,68 +43,97 @@ public class MillHandler extends BaseThingHandler {
 
     private final Logger logger = LoggerFactory.getLogger(MillHandler.class);
 
-//    protected @Nullable MillheatLocalConfiguration config;
+    protected final MillHTTPClientProvider httpClientProvider;
 
-    public MillHandler(Thing thing) {
+    protected final MillAPITool apiTool;
+
+    public MillHandler(Thing thing, MillHTTPClientProvider httpClientProvider) {
         super(thing);
+        this.httpClientProvider = httpClientProvider;
+        this.apiTool = new MillAPITool(this.httpClientProvider);
     }
 
     @Override
     public void handleCommand(ChannelUID channelUID, Command command) {
-        if (CHANNEL_1.equals(channelUID.getId())) {
-            if (command instanceof RefreshType) {
-                // TODO: handle data refresh
-            }
-
-            // TODO: handle command
-
-            // Note: if communication with thing fails for some reason,
-            // indicate that by setting the status with detail information:
-            // updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR,
-            // "Could not control device at IP address x.x.x.x");
+        switch (channelUID.getId()) {
         }
     }
 
     @Override
     public void initialize() {
-        logger.trace("Initializing Thing handler {}", this);
-        // TODO: Initialize the handler.
-        // The framework requires you to return from this method quickly, i.e. any network access must be done in
-        // the background initialization below.
-        // Also, before leaving this method a thing status from one of ONLINE, OFFLINE or UNKNOWN must be set. This
-        // might already be the real thing status in case you can decide it directly.
-        // In case you can not decide the thing status directly (e.g. for long running connection handshake using WAN
-        // access or similar) you should set status UNKNOWN here and then decide the real status asynchronously in the
-        // background.
-
-        // set the thing status to UNKNOWN temporarily and let the background task decide for the real status.
-        // the framework is then able to reuse the resources from the thing handler initialization.
-        // we set this upfront to reliably check status updates in unit tests.
+        if (logger.isTraceEnabled()) {
+            logger.trace("Initializing Thing handler for {}", getThing().getUID());
+        }
         updateStatus(ThingStatus.UNKNOWN);
-
-        // Example for background initialization:
         scheduler.execute(() -> {
-            boolean thingReachable = true; // <background task with long running initialization here>
-            // when done do:
-            if (thingReachable) {
+            try {
+                StatusResponse statusResponse = apiTool.getStatus(getHostname());
+                //TODO: (Nad) Update channels
                 updateStatus(ThingStatus.ONLINE);
-            } else {
-                updateStatus(ThingStatus.OFFLINE);
+                pollControlStatus();
+            } catch (MillException e) {
+                ThingStatusDetail statusDetail = e.getThingStatusDetail();
+                String statusDescription = e.getThingStatusDescription();
+                if (statusDetail == null) {
+                    statusDetail = ThingStatusDetail.NONE;
+                }
+                if (isBlank(statusDescription)) {
+                    statusDescription = null;
+                }
+                updateStatus(ThingStatus.OFFLINE, statusDetail, statusDescription);
             }
         });
+    }
 
-        // These logging types should be primarily used by bindings
-        // logger.trace("Example trace message");
-        // logger.debug("Example debug message");
-        // logger.warn("Example warn message");
-        //
-        // Logging to INFO should be avoided normally.
-        // See https://www.openhab.org/docs/developer/guidelines.html#f-logging
+    public void pollControlStatus() {
+        try {
+            ControlStatusResponse controlStatusResponse = apiTool.getControlStatus(getHostname()); //TODO: (Nad) Temp test
+            //TODO: (Nad) Update channels
+            Double d;
+            if ((d = controlStatusResponse.getAmbientTemperature()) != null) {
+                updateState(AMBIENT_TEMPERATURE, new QuantityType<>(d, SIUnits.CELSIUS));
+            }
+            if ((d = controlStatusResponse.getCurrentPower()) != null) {
+                updateState(CURRENT_POWER, new QuantityType<>(d, Units.WATT));
+            }
+            if ((d = controlStatusResponse.getControlSignal()) != null) {
+                updateState(CONTROL_SIGNAL, new QuantityType<>(d, Units.PERCENT));
+            }
+            if ((d = controlStatusResponse.getRawAmbientTemperature()) != null) {
+                updateState(RAW_AMBIENT_TEMPERATURE, new QuantityType<>(d, SIUnits.CELSIUS));
+            }
 
-        // Note: When initialization can NOT be done set the status with more details for further
-        // analysis. See also class ThingStatusDetail for all available status details.
-        // Add a description to give user information to understand why thing does not work as expected. E.g.
-        // updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
-        // "Can not access device as username and/or password are invalid");
+            updateStatus(ThingStatus.ONLINE); //TODO: (Nad) Figure out
+        } catch (MillException e) {
+            ThingStatusDetail statusDetail = e.getThingStatusDetail();
+            String statusDescription = e.getThingStatusDescription();
+            if (statusDetail == null) {
+                statusDetail = ThingStatusDetail.NONE;
+            }
+            if (isBlank(statusDescription)) {
+                statusDescription = null;
+            }
+            updateStatus(ThingStatus.OFFLINE, statusDetail, statusDescription);
+        }
+    }
+
+    protected String getHostname() throws MillException {
+        Object object = getConfig().get(CONFIG_PARAM_HOSTNAME);
+        if (!(object instanceof String)) {
+            logger.warn("Configuration parameter hostname is \"{}\"", object);
+            throw new MillException(
+                "Invalid configuration: hostname must be a string",
+                ThingStatusDetail.CONFIGURATION_ERROR
+            );
+        }
+        String result = (String) object;
+        if (isBlank(result)) {
+            logger.warn("Configuration parameter hostname is blank");
+            throw new MillException(
+                "Invalid configuration: hostname can't be blank",
+                ThingStatusDetail.CONFIGURATION_ERROR
+            );
+        }
+        return result;
     }
 }
