@@ -24,7 +24,10 @@ import org.openhab.binding.milllan.internal.api.LockStatus;
 import org.openhab.binding.milllan.internal.api.MillAPITool;
 import org.openhab.binding.milllan.internal.api.OpenWindowStatus;
 import org.openhab.binding.milllan.internal.api.OperationMode;
+import org.openhab.binding.milllan.internal.api.ResponseStatus;
 import org.openhab.binding.milllan.internal.api.response.ControlStatusResponse;
+import org.openhab.binding.milllan.internal.api.response.OperationModeResponse;
+import org.openhab.binding.milllan.internal.api.response.Response;
 import org.openhab.binding.milllan.internal.api.response.StatusResponse;
 import org.openhab.binding.milllan.internal.exception.MillException;
 import org.openhab.binding.milllan.internal.exception.MillHTTPResponseException;
@@ -39,6 +42,7 @@ import org.openhab.core.thing.ThingStatus;
 import org.openhab.core.thing.ThingStatusDetail;
 import org.openhab.core.thing.binding.BaseThingHandler;
 import org.openhab.core.types.Command;
+import org.openhab.core.types.RefreshType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,6 +62,8 @@ public class MillHandler extends BaseThingHandler {
     /** Current online state, must be synchronized on {@code this} */
     protected boolean isOnline;
 
+    private boolean onlineWithError;
+
     protected final MillAPITool apiTool;
 
     public MillHandler(Thing thing, MillHTTPClientProvider httpClientProvider) {
@@ -68,7 +74,32 @@ public class MillHandler extends BaseThingHandler {
 
     @Override
     public void handleCommand(ChannelUID channelUID, Command command) {
-        switch (channelUID.getId()) {
+        try {
+            switch (channelUID.getId()) {
+                case AMBIENT_TEMPERATURE:
+                case RAW_AMBIENT_TEMPERATURE:
+                case CURRENT_POWER:
+                case CONTROL_SIGNAL:
+                case SET_TEMPERATURE:
+                case LOCK_STATUS:
+                case OPEN_WINDOW_STATUS:
+                case CONNECTED_CLOUD:
+                    if (command instanceof RefreshType) {
+                        pollControlStatus();
+                    }
+                    break;
+                case OPERATION_MODE:
+                    if (command instanceof RefreshType) {
+                        pollOperationMode();
+                    } else if (command instanceof StringType) {
+                        setOperationMode(command.toString());
+                    }
+                    break;
+
+
+            }
+        } catch (MillException e) {
+            setOffline(e);
         }
     }
 
@@ -76,7 +107,7 @@ public class MillHandler extends BaseThingHandler {
     public void initialize() {
         logger.trace("Initializing Thing handler {}", this);
         updateStatus(ThingStatus.UNKNOWN);
-        scheduler.execute(() -> {
+        scheduler.execute(()-> {
             try {
                 pollStatus();
                 pollControlStatus();
@@ -86,7 +117,13 @@ public class MillHandler extends BaseThingHandler {
     });
     }
 
-    public void pollStatus() throws MillException {
+    @Override
+    public void dispose() {
+        logger.trace("Disposing of Thing handler {}", this);
+        //TODO: (Nad) Stop all schedules
+    }
+
+    public void pollStatus() throws MillException { //TODO: (Nad) Remember to run: mvn i18n:generate-default-translations
         StatusResponse statusResponse = apiTool.getStatus(getHostname());
         setOnline();
         Map<String, String> properties = editProperties();
@@ -172,14 +209,69 @@ public class MillHandler extends BaseThingHandler {
         }
     }
 
+    public void pollOperationMode() throws MillException {
+        OperationModeResponse operationModeResponse = apiTool.getOperationMode(getHostname());
+        setOnline();
+        OperationMode om;
+        if ((om = operationModeResponse.getMode()) != null) {
+            updateState(OPERATION_MODE, new StringType(om.name()));
+        }
+    }
+
+    public void setOperationMode(@Nullable String modeValue) throws MillException {
+        OperationMode mode = OperationMode.typeOf(modeValue);
+        if (mode == null) {
+            logger.warn("setOperationMode() received an invalid operation mode {} - ignoring", modeValue);
+            return;
+        }
+
+        Response response = apiTool.setOperationMode(getHostname(), mode);
+        pollControlStatus();
+
+        // Set status after polling, or it will be overwritten
+        ResponseStatus responseStatus;
+        if ((responseStatus = response.getStatus()) != ResponseStatus.OK) {
+            logger.warn(
+                "Failed to set operation mode to \"{}\": {}",
+                mode,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+            setOnline(
+                ThingStatusDetail.COMMUNICATION_ERROR,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+        } else {
+            setOnline();
+        }
+    }
+
     protected void setOnline() {
+        setOnline(null, null);
+    }
+
+    protected void setOnline(@Nullable ThingStatusDetail statusDetail, @Nullable String description) {
+        boolean isError = statusDetail != null && statusDetail != ThingStatusDetail.NONE;
         synchronized (this) {
-            if (isOnline) {
+            if (isOnline && !isError && !onlineWithError) {
                 return;
             }
             isOnline = true;
+            onlineWithError = isError;
         }
-        updateStatus(ThingStatus.ONLINE);
+        //TODO: (Nad) Clear hostname and refreshInterval errors..?
+
+        // Clear dynamic configuration parameters and properties
+        Map<String, String> properties = editProperties();
+        for (String property : PROPERTIES_DYNAMIC) {
+            properties.remove(property);
+        }
+        updateProperties(properties);
+
+        if (isError && statusDetail != null) {
+            updateStatus(ThingStatus.ONLINE, statusDetail, description);
+        } else {
+            updateStatus(ThingStatus.ONLINE);
+        }
         //TODO: (Nad) Do schedulers etc
     }
 
