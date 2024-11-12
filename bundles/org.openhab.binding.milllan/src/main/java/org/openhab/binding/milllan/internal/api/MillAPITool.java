@@ -26,6 +26,7 @@ import org.openhab.binding.milllan.internal.api.response.DisplayUnitResponse;
 import org.openhab.binding.milllan.internal.api.response.GenericResponse;
 import org.openhab.binding.milllan.internal.api.response.LimitedHeatingPowerResponse;
 import org.openhab.binding.milllan.internal.api.response.OperationModeResponse;
+import org.openhab.binding.milllan.internal.api.response.PredictiveHeatingTypeResponse;
 import org.openhab.binding.milllan.internal.api.response.Response;
 import org.openhab.binding.milllan.internal.api.response.SetTemperatureResponse;
 import org.openhab.binding.milllan.internal.api.response.StatusResponse;
@@ -315,6 +316,36 @@ public class MillAPITool { //TODO: (Nad) Header + JavaDocs
             null,
             HttpMethod.POST,
             "/controller-type",
+            gson.toJson(object),
+            1L,
+            TimeUnit.SECONDS,
+            false
+        );
+    }
+
+    public PredictiveHeatingTypeResponse getPredictiveHeatingType(String hostname) throws MillException {
+        return request(
+            PredictiveHeatingTypeResponse.class,
+            hostname,
+            null,
+            HttpMethod.GET,
+            "/predictive-heating-type",
+            null,
+            1L,
+            TimeUnit.SECONDS,
+            true
+        );
+    }
+
+    public Response setPredictiveHeatingType(String hostname, PredictiveHeatingType type) throws MillException {
+        JsonObject object = new JsonObject();
+        object.add("predictive_heating_type", gson.toJsonTree(type));
+        return request(
+            GenericResponse.class,
+            hostname,
+            null,
+            HttpMethod.POST,
+            "/predictive-heating-type",
             gson.toJson(object),
             1L,
             TimeUnit.SECONDS,
