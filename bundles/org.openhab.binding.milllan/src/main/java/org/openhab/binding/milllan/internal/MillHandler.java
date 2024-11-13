@@ -15,11 +15,17 @@ package org.openhab.binding.milllan.internal;
 import static org.openhab.binding.milllan.internal.MillBindingConstants.*;
 import static org.openhab.binding.milllan.internal.MillUtil.isBlank;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.ConnectException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import javax.measure.quantity.Temperature;
 
@@ -81,7 +87,22 @@ public class MillHandler extends ConfigStatusThingHandler {
     /** Current online state, must be synchronized on {@code this} */
     protected boolean isOnline;
 
-    private boolean onlineWithError;
+    // must be synched on this
+    protected boolean onlineWithError;
+
+    protected final Object pollingLock = new Object();
+
+    // Must be synced on pollingLock
+    @Nullable
+    protected ScheduledFuture<?> frequentPollTask;
+
+    // Must be synced on pollingLock
+    @Nullable
+    protected ScheduledFuture<?> infrequentPollTask;
+
+    // Must be synced on pollingLock
+    @Nullable
+    protected ScheduledFuture<?> offlinePollTask;
 
     protected final MillAPITool apiTool;
 
@@ -237,37 +258,31 @@ public class MillHandler extends ConfigStatusThingHandler {
     public void initialize() {
         logger.trace("Initializing Thing handler {}", this);
         updateStatus(ThingStatus.UNKNOWN);
-        scheduler.execute(()-> {
-            try {
-                pollStatus();
-                pollControlStatus();
-                pollTemperatureCalibrationOffset();
-                pollCommercialLock();
-                pollChildLock();
-                pollDisplayUnit();
-                pollSetTemperature(NORMAL_SET_TEMPERATURE, TemperatureType.NORMAL);
-                pollSetTemperature(COMFORT_SET_TEMPERATURE, TemperatureType.COMFORT);
-                pollSetTemperature(SLEEP_SET_TEMPERATURE, TemperatureType.SLEEP);
-                pollSetTemperature(AWAY_SET_TEMPERATURE, TemperatureType.AWAY);
-                pollLimitedHeatingPower();
-                pollControllerType();
-            } catch (MillException e) {
-                setOffline(e);
-            }
-    });
+        scheduler.execute(new Initializer());
     }
 
     @Override
     public void dispose() {
         logger.trace("Disposing of Thing handler {}", this);
-        //TODO: (Nad) Stop all schedules
-//        synchronized (pollingSync) {
-//            if (pollingJob != null) {
-//                pollingJob.cancel(true);
-//                pollingJob = null;
-//            }
-//        }
-
+        ScheduledFuture<?> future;
+        synchronized (pollingLock) {
+            if ((future = frequentPollTask) != null) {
+                future.cancel(true);
+                frequentPollTask = null;
+            }
+            if ((future = infrequentPollTask) != null) {
+                future.cancel(true);
+                infrequentPollTask = null;
+            }
+            if ((future = offlinePollTask) != null) {
+                future.cancel(true);
+                offlinePollTask = null;
+            }
+        }
+        synchronized (this) {
+            isOnline = false;
+            onlineWithError = false;
+        }
     }
 
     public void pollStatus() throws MillException { //TODO: (Nad) Remember to run: mvn i18n:generate-default-translations
@@ -658,6 +673,43 @@ public class MillHandler extends ConfigStatusThingHandler {
         }
     }
 
+    public void sendReboot() throws MillException {
+        Response response = null;
+        try {
+            response = apiTool.sendReboot(getHostname());
+        } catch (MillException e) {
+            if (!(e.getCause() instanceof TimeoutException)) {
+                throw e;
+            }
+        }
+        ResponseStatus responseStatus;
+        if (response != null && (responseStatus = response.getStatus()) != ResponseStatus.OK) {
+            logger.warn(
+                "Failed to send reboot command to \"{}\": {}",
+                getThing().getUID(),
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+            setOnline(
+                ThingStatusDetail.COMMUNICATION_ERROR,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+        } else {
+            setOffline(ThingStatusDetail.CONFIGURATION_PENDING, "Device is rebooting");
+
+            // The devices reboots relatively quickly, so let's do a couple off one-off
+            // offline polls to set it online again quickly
+            InetAddress[] addresses = resolveOfflineAddresses();
+            if (addresses != null) {
+                scheduler.schedule(new PingOffline(addresses), 8L, TimeUnit.SECONDS);
+                scheduler.schedule(new PingOffline(addresses), 12L, TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    protected synchronized boolean isOnline() {
+        return isOnline;
+    }
+
     protected void setOnline() {
         setOnline(null, null);
     }
@@ -671,7 +723,6 @@ public class MillHandler extends ConfigStatusThingHandler {
             isOnline = true;
             onlineWithError = isError;
         }
-        //TODO: (Nad) Clear hostname and refreshInterval errors..?
 
         // Clear dynamic configuration parameters and properties
         Map<String, String> properties = editProperties();
@@ -685,7 +736,32 @@ public class MillHandler extends ConfigStatusThingHandler {
         } else {
             updateStatus(ThingStatus.ONLINE);
         }
-        //TODO: (Nad) Do schedulers etc
+        int refreshInterval;
+        try {
+            refreshInterval = getRefreshInterval();
+        } catch (MillException e) {
+            logger.error(
+                "Unable to schedule polling for Mill device \"{}\" because the refresh interval is missing",
+                getThing().getUID()
+            );
+            updateStatus(ThingStatus.ONLINE, ThingStatusDetail.CONFIGURATION_ERROR, "Missing refresh interval");
+            return;
+        }
+
+        logger.debug("Mill device \"{}\" is online, starting polling", getThing().getUID());
+        ScheduledFuture<?> future;
+        synchronized (pollingLock) {
+            if ((future = offlinePollTask) != null) {
+                future.cancel(true);
+                offlinePollTask = null;
+            }
+            if ((future = frequentPollTask) == null || future.isDone()) {
+                frequentPollTask = scheduler.scheduleWithFixedDelay(new PollFrequent(), 0L, refreshInterval, TimeUnit.SECONDS);
+            }
+            if ((future = infrequentPollTask) == null || future.isDone()) {
+                infrequentPollTask = scheduler.scheduleWithFixedDelay(new PollInfrequent(), 700L, refreshInterval * 10000L, TimeUnit.MILLISECONDS); //TODO: (Nad) Separate parameter?
+            }
+        }
     }
 
     protected void setOffline(MillException e) {
@@ -710,6 +786,11 @@ public class MillHandler extends ConfigStatusThingHandler {
             startOfflinePolling = isOnline;
             isOnline = false;
         }
+        if (!startOfflinePolling) {
+            synchronized (pollingLock) {
+                startOfflinePolling = offlinePollTask == null;
+            }
+        }
 
         // Set the status regardless of the previous online state, in case the "reason" changed
         updateStatus(
@@ -719,7 +800,38 @@ public class MillHandler extends ConfigStatusThingHandler {
         );
 
         if (startOfflinePolling) {
-            //TODO: (Nad) Do schedulers etc
+            int refreshInterval;
+            try {
+                refreshInterval = getRefreshInterval();
+            } catch (MillException e) {
+                refreshInterval = Integer.MIN_VALUE;
+                logger.warn(
+                    "Unable to poll offline Mill device \"{}\" because the configuration is missing or invalid: {}",
+                    getThing().getUID(),
+                    e.getMessage()
+                );
+            }
+            InetAddress[] addresses = resolveOfflineAddresses();
+            ScheduledFuture<?> future;
+            synchronized (pollingLock) {
+                if ((future = frequentPollTask) != null) {
+                    future.cancel(true);
+                    frequentPollTask = null;
+                }
+                if ((future = infrequentPollTask) != null) {
+                    future.cancel(true);
+                    infrequentPollTask = null;
+                }
+                if (addresses != null && refreshInterval > 0 && ((future = offlinePollTask) == null || future.isDone())) {
+                    logger.debug("Mill device \"{}\" is offline, starting offline polling", getThing().getUID());
+                    offlinePollTask = scheduler.scheduleWithFixedDelay(
+                        new PingOffline(addresses),
+                        1L,
+                        refreshInterval,
+                        TimeUnit.SECONDS
+                    );
+                }
+            }
         }
     }
 
@@ -743,10 +855,142 @@ public class MillHandler extends ConfigStatusThingHandler {
         return result;
     }
 
+    protected int getRefreshInterval() throws MillException {
+        Object object = getConfig().get(CONFIG_PARAM_REFRESH_INTERVAL);
+        if (!(object instanceof Number)) {
+            logger.warn("Configuration parameter refresh interval is \"{}\"", object);
+            throw new MillException(
+                "Invalid configuration: refresh interval must be a number",
+                ThingStatusDetail.CONFIGURATION_ERROR
+            );
+        }
+        int i = ((Number) object).intValue();
+        if (i <= 0) {
+            logger.warn("Configuration parameter refresh interval must be positive ({})", object);
+            throw new MillException(
+                "Invalid configuration: refresh interval must be positive",
+                ThingStatusDetail.CONFIGURATION_ERROR
+            );
+        }
+        return i;
+    }
+
+    protected InetAddress @Nullable [] resolveOfflineAddresses() {
+        String hostname;
+        try {
+            hostname = getHostname();
+        } catch (MillException e) {
+            logger.warn(
+                "Unable to poll offline Mill device \"{}\" because the configuration is missing or invalid: {}",
+                getThing().getUID(),
+                e.getMessage()
+            );
+            return null;
+        }
+        InetAddress[] result = null;
+        if (isBlank(hostname)) {
+            logger.warn(
+                "Unable to poll offline Mill device \"{}\" because the hostname is blank",
+                getThing().getUID()
+            );
+        } else {
+            try {
+                result = InetAddress.getAllByName(hostname);
+            } catch (UnknownHostException e) {
+                logger.warn(
+                    "Unable to poll offline Mill device \"{}\" because the hostname ({}) is unresolvable: {}",
+                    getThing().getUID(),
+                    hostname,
+                    e.getMessage()
+                );
+            }
+        }
+        return result;
+    }
+
     @Override
     public Collection<ConfigStatusMessage> getConfigStatus() {
         // TODO Auto-generated method stub
 //        ConfigStatusMessage.Builder.pending("parameter");
+//        return Collections.emptySet();
         return Collections.singleton(ConfigStatusMessage.Builder.error("hostname").withMessageKeySuffix("test").build());
+    }
+
+    protected class Initializer implements Runnable {
+
+        @Override
+        public void run() {
+            try {
+                pollStatus();
+            } catch (MillException e) {
+                setOffline(e);
+            }
+        }
+    }
+
+    protected class PollFrequent implements Runnable {
+
+        @Override
+        public void run() {
+            try {
+                pollControlStatus();
+                pollSetTemperature(NORMAL_SET_TEMPERATURE, TemperatureType.NORMAL);
+                pollSetTemperature(COMFORT_SET_TEMPERATURE, TemperatureType.COMFORT);
+                pollSetTemperature(SLEEP_SET_TEMPERATURE, TemperatureType.SLEEP);
+                pollSetTemperature(AWAY_SET_TEMPERATURE, TemperatureType.AWAY);
+                pollChildLock();
+            } catch (MillException e) {
+                setOffline(e);
+            }
+        }
+    }
+
+    protected class PollInfrequent implements Runnable {
+
+        @Override
+        public void run() {
+            try {
+                pollStatus();
+                pollTemperatureCalibrationOffset();
+                pollCommercialLock();
+                pollDisplayUnit();
+                pollLimitedHeatingPower();
+                pollControllerType();
+            } catch (MillException e) {
+                setOffline(e);
+            }
+        }
+    }
+
+    protected class PingOffline implements Runnable {
+
+        private final InetAddress[] addresses;
+
+        public PingOffline(InetAddress[] addresses) {
+            this.addresses = addresses;
+        }
+
+        @Override
+        public void run() {
+            for (InetAddress address : addresses) {
+                try {
+                    if (address.isReachable(1000)) {
+                        scheduler.execute(() -> {
+                            try {
+                                pollControlStatus();
+                            } catch (MillException e) {
+                                setOffline(e);
+                            }
+                        });
+                    }
+                } catch (IOException e) {
+                    logger.trace(
+                        "An IOException occurred while pinging offline Mill device {}: {}",
+                        getThing().getLabel(),
+                        e.getMessage()
+                    );
+                }
+            }
+        }
     }
 }
