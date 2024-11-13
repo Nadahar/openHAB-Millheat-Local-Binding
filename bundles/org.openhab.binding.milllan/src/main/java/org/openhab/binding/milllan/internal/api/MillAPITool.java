@@ -353,6 +353,21 @@ public class MillAPITool { //TODO: (Nad) Header + JavaDocs
         );
     }
 
+    //Doc: WILL time out - response is never sent
+    public Response sendReboot(String hostname) throws MillException {
+        return request(
+            GenericResponse.class,
+            hostname,
+            null,
+            HttpMethod.POST,
+            "/reboot",
+            null,
+            5L,
+            TimeUnit.SECONDS,
+            false
+        );
+    }
+
     public <T extends Response> T request(
         Class<T> clazz,
         String hostname,
