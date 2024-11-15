@@ -68,6 +68,11 @@ public class MillBindingConstants {
     public static final String CONFIG_PARAM_HOSTNAME = "hostname";
     public static final String CONFIG_PARAM_API_KEY = "apiKey";
     public static final String CONFIG_PARAM_REFRESH_INTERVAL = "refreshInterval";
+    public static final String CONFIG_PARAM_TIMEZONE_OFFSET = "timeZoneOffset";
+
+    public static final Set<String> CONFIG_DYNAMIC_PARAMETERS = Set.of( //TODO: (Nad) Make sure all dynamic params are in
+        CONFIG_PARAM_TIMEZONE_OFFSET
+    );
 
     private MillBindingConstants() {
         // Not to be instantiated
