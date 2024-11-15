@@ -22,7 +22,12 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -53,9 +58,14 @@ import org.openhab.binding.milllan.internal.api.response.Response;
 import org.openhab.binding.milllan.internal.api.response.SetTemperatureResponse;
 import org.openhab.binding.milllan.internal.api.response.StatusResponse;
 import org.openhab.binding.milllan.internal.api.response.TemperatureCalibrationOffsetResponse;
+import org.openhab.binding.milllan.internal.api.response.TimeZoneOffsetResponse;
+import org.openhab.binding.milllan.internal.configuration.MillConfigDescriptionProvider;
 import org.openhab.binding.milllan.internal.exception.MillException;
 import org.openhab.binding.milllan.internal.exception.MillHTTPResponseException;
+import org.openhab.core.config.core.Configuration;
+import org.openhab.core.config.core.status.ConfigStatusCallback;
 import org.openhab.core.config.core.status.ConfigStatusMessage;
+import org.openhab.core.config.core.status.ConfigStatusProvider;
 import org.openhab.core.library.types.OnOffType;
 import org.openhab.core.library.types.PercentType;
 import org.openhab.core.library.types.QuantityType;
@@ -66,7 +76,10 @@ import org.openhab.core.thing.ChannelUID;
 import org.openhab.core.thing.Thing;
 import org.openhab.core.thing.ThingStatus;
 import org.openhab.core.thing.ThingStatusDetail;
-import org.openhab.core.thing.binding.ConfigStatusThingHandler;
+import org.openhab.core.thing.binding.BaseThingHandler;
+import org.openhab.core.thing.binding.ThingConfigStatusSource;
+import org.openhab.core.thing.binding.ThingHandlerCallback;
+import org.openhab.core.thing.binding.ThingHandlerService;
 import org.openhab.core.types.Command;
 import org.openhab.core.types.RefreshType;
 import org.slf4j.Logger;
@@ -79,9 +92,14 @@ import org.slf4j.LoggerFactory;
  * @author Nadahar - Initial contribution
  */
 @NonNullByDefault
-public class MillHandler extends ConfigStatusThingHandler {
+public class MillHandler extends BaseThingHandler implements ConfigStatusProvider {
 
     private final Logger logger = LoggerFactory.getLogger(MillHandler.class);
+
+    @Nullable
+    protected ConfigStatusCallback configStatusCallback;
+
+    protected final MillConfigDescriptionProvider configDescriptionProvider;
 
     protected final MillHTTPClientProvider httpClientProvider;
 
@@ -107,8 +125,13 @@ public class MillHandler extends ConfigStatusThingHandler {
 
     protected final MillAPITool apiTool;
 
-    public MillHandler(Thing thing, MillHTTPClientProvider httpClientProvider) {
+    public MillHandler(
+        Thing thing,
+        MillConfigDescriptionProvider configDescriptionProvider,
+        MillHTTPClientProvider httpClientProvider
+    ) {
         super(thing);
+        this.configDescriptionProvider = configDescriptionProvider;
         this.httpClientProvider = httpClientProvider;
         this.apiTool = new MillAPITool(this.httpClientProvider);
     }
@@ -717,6 +740,61 @@ public class MillHandler extends ConfigStatusThingHandler {
         }
     }
 
+    @Nullable
+    public Integer pollTimeZoneOffset(boolean updateConfiguration) throws MillException {
+        TimeZoneOffsetResponse offset;
+        try {
+            offset = apiTool.getTimeZoneOffset(getHostname());
+            setOnline();
+        } catch (MillHTTPResponseException e) {
+            // API function not implemented
+            if (e.getHttpStatus() >= 400) {
+                if (logger.isTraceEnabled()) {
+                    logger.trace("Thing \"{}\" doesn't seem to support timezone offset", getThing().getUID());
+                }
+                return null;
+            }
+            throw e;
+        }
+        Integer i;
+        if ((i = offset.getOffset()) != null) {
+            Thing thing = getThing();
+            configDescriptionProvider.enableDescriptions(thing.getUID(), CONFIG_PARAM_TIMEZONE_OFFSET);
+            if (updateConfiguration) {
+                Configuration configuration = editConfiguration();
+                Object object = configuration.get(CONFIG_PARAM_TIMEZONE_OFFSET);
+                if (!(object instanceof Number) || ((Number) object).intValue() != i.intValue()) {
+                    configuration.put(CONFIG_PARAM_TIMEZONE_OFFSET, BigDecimal.valueOf(i));
+                    updateConfiguration(configuration);
+                }
+            }
+        }
+        return i;
+    }
+
+    @Nullable
+    public Integer setTimeZoneOffset(Integer value, boolean updateConfiguration) throws MillException {
+        Response response = apiTool.setTimeZoneOffset(getHostname(), value);
+        Integer result = pollTimeZoneOffset(updateConfiguration);
+
+        // Set status after polling, or it will be overwritten
+        ResponseStatus responseStatus;
+        if ((responseStatus = response.getStatus()) != ResponseStatus.OK) {
+            logger.warn(
+                "Failed to set timezone offset to \"{}\": {}",
+                value,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+            setOnline(
+                ThingStatusDetail.COMMUNICATION_ERROR,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+        } else {
+            setOnline();
+        }
+        return result;
+    }
+
     public void sendReboot() throws MillException {
         Response response = null;
         try {
@@ -774,6 +852,11 @@ public class MillHandler extends ConfigStatusThingHandler {
             properties.remove(property);
         }
         updateProperties(properties);
+        Configuration configuration = editConfiguration();
+        for (String parameter : CONFIG_DYNAMIC_PARAMETERS) {
+            configuration.remove(parameter);
+        }
+        updateConfiguration(configuration);
 
         if (isError && statusDetail != null) {
             updateStatus(ThingStatus.ONLINE, statusDetail, description);
@@ -844,6 +927,7 @@ public class MillHandler extends ConfigStatusThingHandler {
         );
 
         if (startOfflinePolling) {
+            configDescriptionProvider.disableDescriptions(getThing().getUID()); //TODO: (NAd) Remove errors for dynamic parameters
             int refreshInterval;
             try {
                 refreshInterval = getRefreshInterval();
@@ -953,11 +1037,126 @@ public class MillHandler extends ConfigStatusThingHandler {
     }
 
     @Override
+    public void handleConfigurationUpdate(Map<String, Object> configurationParameters) {
+        Set<String> modifiedParameters = getModifiedParameters(configurationParameters);
+        if (modifiedParameters.isEmpty()) {
+            return;
+        }
+
+        ThingHandlerCallback callback = getCallback();
+        if (callback == null) {
+            logger.warn("Unable to update configuration since the callback is null");
+            return;
+        }
+        callback.validateConfigurationParameters(getThing(), configurationParameters);
+
+        Configuration configuration = editConfiguration();
+        for (Entry<String, Object> configurationParameter : configurationParameters.entrySet()) {
+            configuration.put(configurationParameter.getKey(), configurationParameter.getValue());
+        }
+
+        boolean online = isOnline();
+        if (modifiedParameters.contains(CONFIG_PARAM_TIMEZONE_OFFSET)) {
+            if (online) {
+                try {
+                    int i = ((Number) configuration.get(CONFIG_PARAM_TIMEZONE_OFFSET)).intValue();
+                    Integer result = setTimeZoneOffset(i, false);
+                    if (result == null) {
+                        logger.warn(
+                            "A null timezone offset value was received when attempting to set ({})",
+                            i
+                        );
+                        configuration.remove(CONFIG_PARAM_TIMEZONE_OFFSET);
+                    } else if (result.intValue() != i) {
+                        logger.warn(
+                            "The device returned a different timezone offset value ({}) than " +
+                            "what was attempted set ({})",
+                            result,
+                            i
+                        );
+                        // TODO: (Nad) Set error on param
+                        configuration.put(CONFIG_PARAM_TIMEZONE_OFFSET, BigDecimal.valueOf(result.longValue()));
+                    } else {
+                        // TODO: (Nad) Clear error on param
+                    }
+                } catch (MillException e) {
+                    // Set old value
+                    Object object = getConfig().get(CONFIG_PARAM_TIMEZONE_OFFSET);
+                    if (object instanceof Number) {
+                        configuration.put(CONFIG_PARAM_TIMEZONE_OFFSET, object);
+                    } else {
+                        configuration.remove(CONFIG_PARAM_TIMEZONE_OFFSET);
+                    }
+                }
+            } else {
+                configuration.remove(CONFIG_PARAM_TIMEZONE_OFFSET);
+            }
+        }
+
+        if ((
+                modifiedParameters.contains(CONFIG_PARAM_HOSTNAME) ||
+                modifiedParameters.contains(CONFIG_PARAM_API_KEY) ||
+                modifiedParameters.contains(CONFIG_PARAM_REFRESH_INTERVAL)
+            ) &&
+            isInitialized()
+        ) {
+            // Persist new configuration and reinitialize handler
+            dispose();
+            updateConfiguration(configuration);
+            initialize();
+        } else {
+            // Persist new configuration and notify Thing Manager
+            updateConfiguration(configuration);
+            callback.configurationUpdated(getThing());
+        }
+
+        ConfigStatusCallback confStatusCallback = configStatusCallback;
+        if (confStatusCallback != null) { //TODO: (Nad) Is this needed? This is already sent in updateConfiguration above
+            confStatusCallback.configUpdated(new ThingConfigStatusSource(getThing().getUID().getAsString()));
+        }
+    }
+
+    @Override
+    protected void updateConfiguration(Configuration configuration) {
+        super.updateConfiguration(configuration);
+        ConfigStatusCallback confStatusCallback = configStatusCallback;
+        if (confStatusCallback != null) {
+            confStatusCallback.configUpdated(new ThingConfigStatusSource(getThing().getUID().getAsString()));
+        }
+    }
+
+   @Override
     public Collection<ConfigStatusMessage> getConfigStatus() {
         // TODO Auto-generated method stub
 //        ConfigStatusMessage.Builder.pending("parameter");
 //        return Collections.emptySet();
         return Collections.singleton(ConfigStatusMessage.Builder.error("hostname").withMessageKeySuffix("test").build());
+    }
+
+    @Override
+    public Collection<Class<? extends ThingHandlerService>> getServices() {
+        return List.of(MillActions.class);
+    }
+
+   protected Set<String> getModifiedParameters(Map<String, Object> configurationParameters) {
+       Set<String> result = new HashSet<>();
+       Configuration currentConfig = getConfig();
+       for (Entry<String, Object> entry : configurationParameters.entrySet()) {
+           if (!Objects.equals(currentConfig.get(entry.getKey()), entry.getValue())) {
+               result.add(entry.getKey());
+           }
+       }
+       return result;
+   }
+
+    @Override
+    public boolean supportsEntity(String entityId) {
+        return getThing().getUID().getAsString().equals(entityId);
+    }
+
+    @Override
+    public void setConfigStatusCallback(@Nullable ConfigStatusCallback configStatusCallback) {
+        this.configStatusCallback = configStatusCallback;
     }
 
     protected class Initializer implements Runnable {
@@ -1002,6 +1201,7 @@ public class MillHandler extends ConfigStatusThingHandler {
                 pollControllerType();
                 pollPredictiveHeatingType();
 //                pollOilHeaterPower(); //TODO: (Nad) Oil only
+                pollTimeZoneOffset(true);
             } catch (MillException e) {
                 setOffline(e);
             }
