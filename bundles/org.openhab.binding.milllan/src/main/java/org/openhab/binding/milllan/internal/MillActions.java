@@ -6,6 +6,7 @@ import java.util.Map;
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
 import org.openhab.binding.milllan.internal.exception.MillException;
+import org.openhab.core.automation.annotation.ActionInput;
 import org.openhab.core.automation.annotation.ActionOutput;
 import org.openhab.core.automation.annotation.ActionOutputs;
 import org.openhab.core.automation.annotation.RuleAction;
@@ -63,9 +64,50 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         }
     }
 
+    @ActionOutputs(value = {@ActionOutput(name = "result", type = "java.lang.String")})
+    @RuleAction(label = "@text/actions.milllan.set-timezone-offset.label", description = "@text/actions.milllan.set-timezone-offset.description")
+    public @ActionOutput(name = "result", type = "java.lang.String") Map<String, Object> setTimeZoneOffset(
+        @Nullable @ActionInput(
+            name = "offset",
+            label = "@text/actions-input.milllan.set-timezone-offset.offset.label",
+            description = "@text/actions-input.milllan.set-timezone-offset.offset.description",
+            required = true
+        ) Integer offset
+    ) {
+        Map<String, Object> result = new HashMap<>();
+        MillHandler handlerInst = handler;
+        if (handlerInst == null) {
+            logger.warn("Call to setTimeZoneOffset Action failed because the handler was null");
+            result.put("result", "Failed: The handler is null");
+            return result;
+        }
+        if (offset == null) {
+            logger.warn("Call to setTimeZoneOffset Action failed because the offset was null");
+            result.put("result", "The time zone offset must be specified!");
+            return result;
+        }
+        try {
+            handlerInst.setTimeZoneOffset(offset, true);
+            result.put("result", "The time zone offset was set to " + offset + '.');
+            return result;
+        } catch (MillException e) {
+            logger.warn(
+                "Failed to execute setTimeZoneOffset Action on Thing {}: {}",
+                handlerInst.getThing().getUID(),
+                e.getMessage()
+            );
+            result.put("result", "Failed to execute setTimeZoneOffset Action: " + e.getMessage());
+            return result;
+        }
+    }
+
     // Methods for Rules DSL rule support
 
     public static void sendReboot(ThingActions actions) {
         ((MillActions) actions).sendReboot();
+    }
+
+    public static void setTimeZoneOffset(ThingActions actions, Integer offset) {
+        ((MillActions) actions).setTimeZoneOffset(offset);
     }
 }

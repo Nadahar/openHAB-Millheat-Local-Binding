@@ -18,6 +18,7 @@ import java.util.Set;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
+import org.openhab.binding.milllan.internal.configuration.MillConfigDescriptionProvider;
 import org.openhab.core.thing.Thing;
 import org.openhab.core.thing.ThingTypeUID;
 import org.openhab.core.thing.binding.BaseThingHandlerFactory;
@@ -40,14 +41,17 @@ public class MillHandlerFactory extends BaseThingHandlerFactory {
 
     private static final Set<ThingTypeUID> SUPPORTED_THING_TYPES_UIDS = Set.of(THING_TYPE_PANEL_HEATER);
 
+    private final MillConfigDescriptionProvider configDescriptionProvider;
     private final MillHTTPClientProvider httpClientProvider;
 
     @Activate
     public MillHandlerFactory(
+        @Reference MillConfigDescriptionProvider configDescriptionProvider,
         @Reference MillHTTPClientProvider httpClientProvider,
         ComponentContext componentContext
     ) {
         super.activate(componentContext);
+        this.configDescriptionProvider = configDescriptionProvider;
         this.httpClientProvider = httpClientProvider;
     }
 
@@ -61,7 +65,7 @@ public class MillHandlerFactory extends BaseThingHandlerFactory {
         ThingTypeUID thingTypeUID = thing.getThingTypeUID();
 
         if (THING_TYPE_PANEL_HEATER.equals(thingTypeUID)) {
-            return new MillHandler(thing, httpClientProvider);
+            return new MillHandler(thing, configDescriptionProvider, httpClientProvider);
         }
 
         return null;
