@@ -20,8 +20,10 @@ import java.math.BigDecimal;
 import java.net.ConnectException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -102,6 +104,9 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
     protected final MillConfigDescriptionProvider configDescriptionProvider;
 
     protected final MillHTTPClientProvider httpClientProvider;
+
+    //Doc: Must be synced on itself
+    protected final Map<String, ConfigStatusMessage> configStatusMessages = new HashMap<>();
 
     /** Current online state, must be synchronized on {@code this} */
     protected boolean isOnline;
@@ -300,6 +305,8 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
     @Override
     public void dispose() {
         logger.trace("Disposing of Thing handler {}", this);
+        configDescriptionProvider.disableDescriptions(getThing().getUID());
+        clearAllConfigParameterMessages();
         ScheduledFuture<?> future;
         synchronized (pollingLock) {
             if ((future = frequentPollTask) != null) {
@@ -845,6 +852,7 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
             isOnline = true;
             onlineWithError = isError;
         }
+        clearConfigParameterMessages(CONFIG_PARAM_HOSTNAME);
 
         // Clear dynamic configuration parameters and properties
         Map<String, String> properties = editProperties();
@@ -866,6 +874,7 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         int refreshInterval;
         try {
             refreshInterval = getRefreshInterval();
+            clearConfigParameterMessages(CONFIG_PARAM_REFRESH_INTERVAL);
         } catch (MillException e) {
             logger.error(
                 "Unable to schedule polling for Mill device \"{}\" because the refresh interval is missing",
@@ -927,16 +936,23 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         );
 
         if (startOfflinePolling) {
-            configDescriptionProvider.disableDescriptions(getThing().getUID()); //TODO: (NAd) Remove errors for dynamic parameters
+            configDescriptionProvider.disableDescriptions(getThing().getUID());
+            clearConfigParameterMessages(CONFIG_DYNAMIC_PARAMETERS.toArray(String[]::new));
             int refreshInterval;
             try {
                 refreshInterval = getRefreshInterval();
+                clearConfigParameterMessages(CONFIG_PARAM_REFRESH_INTERVAL);
             } catch (MillException e) {
                 refreshInterval = Integer.MIN_VALUE;
                 logger.warn(
                     "Unable to poll offline Mill device \"{}\" because the configuration is missing or invalid: {}",
                     getThing().getUID(),
                     e.getMessage()
+                );
+                setConfigParameterMessage(ConfigStatusMessage.Builder
+                    .error(CONFIG_PARAM_REFRESH_INTERVAL)
+                    .withMessageKeySuffix("invalid-parameter-ex")
+                    .withArguments(e.getThingStatusDescription()).build()
                 );
             }
             InetAddress[] addresses = resolveOfflineAddresses();
@@ -967,6 +983,9 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         Object object = getConfig().get(CONFIG_PARAM_HOSTNAME);
         if (!(object instanceof String)) {
             logger.warn("Configuration parameter hostname is \"{}\"", object);
+            setConfigParameterMessage(ConfigStatusMessage.Builder
+                .error(CONFIG_PARAM_HOSTNAME).withMessageKeySuffix("invalid-parameter").withArguments(object).build()
+            );
             throw new MillException(
                 "Invalid configuration: hostname must be a string",
                 ThingStatusDetail.CONFIGURATION_ERROR
@@ -975,6 +994,9 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         String result = (String) object;
         if (isBlank(result)) {
             logger.warn("Configuration parameter hostname is blank");
+            setConfigParameterMessage(ConfigStatusMessage.Builder
+                .error(CONFIG_PARAM_HOSTNAME).withMessageKeySuffix("blank-hostname").build()
+            );
             throw new MillException(
                 "Invalid configuration: hostname can't be blank",
                 ThingStatusDetail.CONFIGURATION_ERROR
@@ -987,6 +1009,10 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         Object object = getConfig().get(CONFIG_PARAM_REFRESH_INTERVAL);
         if (!(object instanceof Number)) {
             logger.warn("Configuration parameter refresh interval is \"{}\"", object);
+            setConfigParameterMessage(ConfigStatusMessage.Builder
+                .error(CONFIG_PARAM_REFRESH_INTERVAL).withMessageKeySuffix("invalid-parameter")
+                .withArguments(object).build()
+            );
             throw new MillException(
                 "Invalid configuration: refresh interval must be a number",
                 ThingStatusDetail.CONFIGURATION_ERROR
@@ -995,6 +1021,9 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         int i = ((Number) object).intValue();
         if (i <= 0) {
             logger.warn("Configuration parameter refresh interval must be positive ({})", object);
+            setConfigParameterMessage(ConfigStatusMessage.Builder
+                .error(CONFIG_PARAM_REFRESH_INTERVAL).withMessageKeySuffix("illegal-refresh-interval").build()
+            );
             throw new MillException(
                 "Invalid configuration: refresh interval must be positive",
                 ThingStatusDetail.CONFIGURATION_ERROR
@@ -1013,6 +1042,11 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                 getThing().getUID(),
                 e.getMessage()
             );
+            setConfigParameterMessage(ConfigStatusMessage.Builder
+                .error(CONFIG_PARAM_HOSTNAME)
+                .withMessageKeySuffix("invalid-parameter-ex")
+                .withArguments(e.getThingStatusDescription()).build()
+            );
             return null;
         }
         InetAddress[] result = null;
@@ -1021,15 +1055,22 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                 "Unable to poll offline Mill device \"{}\" because the hostname is blank",
                 getThing().getUID()
             );
+            setConfigParameterMessage(ConfigStatusMessage.Builder
+                .error(CONFIG_PARAM_HOSTNAME).withMessageKeySuffix("blank-hostname").build()
+            );
         } else {
             try {
                 result = InetAddress.getAllByName(hostname);
+                clearConfigParameterMessages(CONFIG_PARAM_HOSTNAME);
             } catch (UnknownHostException e) {
                 logger.warn(
                     "Unable to poll offline Mill device \"{}\" because the hostname ({}) is unresolvable: {}",
                     getThing().getUID(),
                     hostname,
                     e.getMessage()
+                );
+                setConfigParameterMessage(ConfigStatusMessage.Builder
+                    .error(CONFIG_PARAM_HOSTNAME).withMessageKeySuffix("unresolvable-hostname").build()
                 );
             }
         }
@@ -1066,6 +1107,9 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                             "A null timezone offset value was received when attempting to set ({})",
                             i
                         );
+                        setConfigParameterMessage(ConfigStatusMessage.Builder
+                            .error(CONFIG_PARAM_TIMEZONE_OFFSET).withMessageKeySuffix("store-failed")
+                            .withArguments(Integer.valueOf(i)).build());
                         configuration.remove(CONFIG_PARAM_TIMEZONE_OFFSET);
                     } else if (result.intValue() != i) {
                         logger.warn(
@@ -1074,10 +1118,12 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                             result,
                             i
                         );
-                        // TODO: (Nad) Set error on param
+                        setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_TIMEZONE_OFFSET).withMessageKeySuffix("store-failed")
+                                .withArguments(Integer.valueOf(i)).build());
                         configuration.put(CONFIG_PARAM_TIMEZONE_OFFSET, BigDecimal.valueOf(result.longValue()));
                     } else {
-                        // TODO: (Nad) Clear error on param
+                        clearConfigParameterMessages(CONFIG_PARAM_TIMEZONE_OFFSET);
                     }
                 } catch (MillException e) {
                     // Set old value
@@ -1087,6 +1133,9 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                     } else {
                         configuration.remove(CONFIG_PARAM_TIMEZONE_OFFSET);
                     }
+                    setConfigParameterMessage(ConfigStatusMessage.Builder
+                        .error(CONFIG_PARAM_TIMEZONE_OFFSET).withMessageKeySuffix("store-failed-ex")
+                        .withArguments(e.getMessage()).build());
                 }
             } else {
                 configuration.remove(CONFIG_PARAM_TIMEZONE_OFFSET);
@@ -1125,12 +1174,33 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         }
     }
 
-   @Override
-    public Collection<ConfigStatusMessage> getConfigStatus() {
-        // TODO Auto-generated method stub
-//        ConfigStatusMessage.Builder.pending("parameter");
-//        return Collections.emptySet();
-        return Collections.singleton(ConfigStatusMessage.Builder.error("hostname").withMessageKeySuffix("test").build());
+    protected void setConfigParameterMessage(ConfigStatusMessage statusMessage) {
+        synchronized (configStatusMessages) {
+            configStatusMessages.put(statusMessage.parameterName, statusMessage);
+        }
+    }
+
+    protected void clearConfigParameterMessages(String... parameterNames) {
+        synchronized (configStatusMessages) {
+            for (String parameterName : parameterNames) {
+                configStatusMessages.remove(parameterName);
+            }
+        }
+    }
+
+    protected void clearAllConfigParameterMessages() {
+        synchronized (configStatusMessages) {
+            configStatusMessages.clear();
+        }
+    }
+
+    @Override
+    public Collection<ConfigStatusMessage> getConfigStatus() { //TODO: (Nad) Localize?
+        synchronized (configStatusMessages) {
+            return configStatusMessages.isEmpty() ?
+                Collections.emptyList() :
+                new ArrayList<>(configStatusMessages.values());
+        }
     }
 
     @Override
@@ -1138,16 +1208,16 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         return List.of(MillActions.class);
     }
 
-   protected Set<String> getModifiedParameters(Map<String, Object> configurationParameters) {
-       Set<String> result = new HashSet<>();
-       Configuration currentConfig = getConfig();
-       for (Entry<String, Object> entry : configurationParameters.entrySet()) {
-           if (!Objects.equals(currentConfig.get(entry.getKey()), entry.getValue())) {
-               result.add(entry.getKey());
-           }
-       }
-       return result;
-   }
+    protected Set<String> getModifiedParameters(Map<String, Object> configurationParameters) {
+        Set<String> result = new HashSet<>();
+        Configuration currentConfig = getConfig();
+        for (Entry<String, Object> entry : configurationParameters.entrySet()) {
+            if (!Objects.equals(currentConfig.get(entry.getKey()), entry.getValue())) {
+                result.add(entry.getKey());
+            }
+        }
+        return result;
+    }
 
     @Override
     public boolean supportsEntity(String entityId) {
