@@ -101,6 +101,67 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         }
     }
 
+    @ActionOutputs(value = {@ActionOutput(name = "result", type = "java.lang.String")})
+    @RuleAction(label = "@text/actions.milllan.set-pid-parameters.label", description = "@text/actions.milllan.set-pid-parameters.description")
+    public @ActionOutput(name = "result", type = "java.lang.String") Map<String, Object> setPIDParameters(
+        @Nullable @ActionInput(
+            name = "kp",
+            label = "Kp",
+            description = "@text/actions-input.milllan.set-pid-parameters.kp.description",
+            required = true
+        ) Double kp,
+        @Nullable @ActionInput(
+            name = "ki",
+            label = "Ki",
+            description = "@text/actions-input.milllan.set-pid-parameters.ki.description",
+            required = true
+        ) Double ki,
+        @Nullable @ActionInput(
+            name = "kd",
+            label = "Kd",
+            description = "@text/actions-input.milllan.set-pid-parameters.kd.description",
+            required = true
+        ) Double kd,
+        @Nullable @ActionInput(
+            name = "kdFilterN",
+            label = "@text/actions-input.milllan.set-pid-parameters.kd-filter.label",
+            description = "@text/actions-input.milllan.set-pid-parameters.kd-filter.description",
+            required = true
+        ) Double kdFilterN,
+        @Nullable @ActionInput(
+            name = "windupLimitPct",
+            label = "@text/actions-input.milllan.set-pid-parameters.windup-limit.label",
+            description = "@text/actions-input.milllan.set-pid-parameters.windup-limit.description",
+            required = true
+        ) Double windupLimitPct
+    ) {
+        Map<String, Object> result = new HashMap<>();
+        MillHandler handlerInst = handler;
+        if (handlerInst == null) {
+            logger.warn("Call to setPIDParameters Action failed because the handler was null");
+            result.put("result", "Failed: The handler is null");
+            return result;
+        }
+        if (kp == null || ki == null || kd == null || kdFilterN == null || windupLimitPct == null) {
+            logger.warn("Call to setPIDParameters Action failed because some parameters were null");
+            result.put("result", "All PID parameters must be specified!");
+            return result;
+        }
+        try {
+            handlerInst.setPIDParameters(kp, ki, kd, kdFilterN, windupLimitPct, true);
+            result.put("result", "The PID parameters were set.");
+            return result;
+        } catch (MillException e) {
+            logger.warn(
+                "Failed to execute setPIDParameters Action on Thing {}: {}",
+                handlerInst.getThing().getUID(),
+                e.getMessage()
+            );
+            result.put("result", "Failed to execute setPIDParameters Action: " + e.getMessage());
+            return result;
+        }
+    }
+
     // Methods for Rules DSL rule support
 
     public static void sendReboot(ThingActions actions) {
@@ -109,5 +170,16 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
 
     public static void setTimeZoneOffset(ThingActions actions, Integer offset) {
         ((MillActions) actions).setTimeZoneOffset(offset);
+    }
+
+    public static void setPIDParameters(
+        ThingActions actions,
+        Double kp,
+        Double ki,
+        Double kd,
+        Double kdFilterN,
+        Double windupLimitPct
+    ) {
+        ((MillActions) actions).setPIDParameters(kp, ki, kd, kdFilterN, windupLimitPct);
     }
 }
