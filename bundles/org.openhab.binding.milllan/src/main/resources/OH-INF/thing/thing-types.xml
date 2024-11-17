@@ -41,12 +41,22 @@
 		<representation-property>macAddress</representation-property>
 
 		<config-description>
-			<parameter name="hostname" type="text" required="true">
+
+			<parameter-group name="general">
+				<label>General</label>
+				<advanced>false</advanced>
+			</parameter-group>
+			<parameter-group name="pid">
+				<label>PID Controller</label>
+				<advanced>true</advanced>
+			</parameter-group>
+
+			<parameter name="hostname" type="text" required="true" groupName="general">
 				<context>network-address</context>
 				<label>Hostname</label>
 				<description>Hostname or IP address of the device.</description>
 			</parameter>
-			<parameter name="refreshInterval" type="integer" unit="s" min="1">
+			<parameter name="refreshInterval" type="integer" unit="s" min="1" groupName="general">
 				<label>Refresh Interval</label>
 				<description>The refresh interval in seconds for polling the device for information.</description>
 				<default>30</default>

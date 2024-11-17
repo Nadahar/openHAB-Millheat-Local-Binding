@@ -130,7 +130,58 @@ public class MillConfigDescriptionProviderImpl implements ConfigDescriptionProvi
                             .withUnit("min").withMinimum(BigDecimal.valueOf(-840L))
                             .withMaximum(BigDecimal.valueOf(720L)).withStepSize(BigDecimal.valueOf(15L))
                             .withLabel("Time Zone Offset").withDescription("The time zone offset from UTC in minutes.")
-                            .withAdvanced(true).withDefault("0").build()
+                            .withGroupName("general").withAdvanced(true).withDefault("0").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_PID_KP:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withStepSize(BigDecimal.valueOf(1L)).withLabel("Kp")
+                            .withDescription("The PID controller's proportional gain factor K<sub>p</sub>.")
+                            .withGroupName("pid").withAdvanced(true).withDefault("70").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_PID_KI:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withStepSize(BigDecimal.valueOf(0.01)).withLabel("Ki")
+                            .withDescription("The PID controller's integral gain factor K<sub>i</sub>.")
+                            .withGroupName("pid").withAdvanced(true).withDefault("0.02").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_PID_KD:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withStepSize(BigDecimal.valueOf(1L)).withLabel("Kd")
+                            .withDescription("The PID controller's derivative gain factor K<sub>d</sub>.")
+                            .withGroupName("pid").withAdvanced(true).withDefault("4500").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_PID_KD_FILTER_N:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withStepSize(BigDecimal.valueOf(1L)).withLabel("Kd filter")
+                            .withDescription("The PID controller's derivative (K<sub>d</sub>) filter time coefficient.")
+                            .withGroupName("pid").withAdvanced(true).withDefault("60").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_PID_WINDUP_LIMIT_PCT:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withMaximum(BigDecimal.valueOf(100L))
+                            .withStepSize(BigDecimal.valueOf(1L)).withLabel("Ki Wind-up Limit").withUnit("%")
+                            .withDescription("The PID controller's wind-up limit for integral part (K<sub>i</sub>) in percent (0 to 100).")
+                            .withGroupName("pid").withAdvanced(true).withDefault("95").build()
                         );
                         result |= true;
                         break;
