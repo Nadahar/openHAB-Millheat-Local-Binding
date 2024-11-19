@@ -162,6 +162,48 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         }
     }
 
+    @ActionOutputs(value = {@ActionOutput(name = "result", type = "java.lang.String")})
+    @RuleAction(label = "@text/actions.milllan.set-cloud-communication.label", description = "@text/actions.milllan.set-cloud-communication.description")
+    public @ActionOutput(name = "result", type = "java.lang.String") Map<String, Object> setCloudCommunication(
+        @Nullable @ActionInput(
+            name = "enabled",
+            label = "@text/actions-input.milllan.set-cloud-communication.enabled.label",
+            description = "@text/actions-input.milllan.set-cloud-communication.enabled.description",
+            required = true
+        ) Boolean enabled
+    ) {
+        Map<String, Object> result = new HashMap<>();
+        MillHandler handlerInst = handler;
+        if (handlerInst == null) {
+            logger.warn("Call to setCloudCommunication Action failed because the handler was null");
+            result.put("result", "Failed: The handler is null");
+            return result;
+        }
+        try {
+            handlerInst.setCloudCommunication(enabled == null ? Boolean.FALSE : enabled, true);
+            result.put("result", "The cloud communicaton was " + (enabled == null || !enabled.booleanValue() ? "disabled" : "enabled") + ". The device is rebooting.");
+            try {
+                handlerInst.sendReboot();
+            } catch (MillException e) {
+                logger.warn(
+                    "Failed to reboot device after setting cloud communication on Thing {}: {}",
+                    handlerInst.getThing().getUID(),
+                    e.getMessage()
+                );
+                result.put("result", "Failed to execute reboot: " + e.getMessage());
+            }
+            return result;
+        } catch (MillException e) {
+            logger.warn(
+                "Failed to execute setCloudCommunication Action on Thing {}: {}",
+                handlerInst.getThing().getUID(),
+                e.getMessage()
+            );
+            result.put("result", "Failed to execute setCloudCommunication Action: " + e.getMessage());
+            return result;
+        }
+    }
+
     // Methods for Rules DSL rule support
 
     public static void sendReboot(ThingActions actions) {
@@ -181,5 +223,9 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         Double windupLimitPct
     ) {
         ((MillActions) actions).setPIDParameters(kp, ki, kd, kdFilterN, windupLimitPct);
+    }
+
+    public static void setCloudCommunication(ThingActions actions, Boolean enabled) {
+        ((MillActions) actions).setCloudCommunication(enabled);
     }
 }
