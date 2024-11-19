@@ -48,6 +48,7 @@ import org.openhab.binding.milllan.internal.api.PredictiveHeatingType;
 import org.openhab.binding.milllan.internal.api.ResponseStatus;
 import org.openhab.binding.milllan.internal.api.TemperatureType;
 import org.openhab.binding.milllan.internal.api.response.ChildLockResponse;
+import org.openhab.binding.milllan.internal.api.response.CloudCommunicationResponse;
 import org.openhab.binding.milllan.internal.api.response.CommercialLockResponse;
 import org.openhab.binding.milllan.internal.api.response.ControlStatusResponse;
 import org.openhab.binding.milllan.internal.api.response.ControllerTypeResponse;
@@ -879,6 +880,61 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         return result;
     }
 
+    @Nullable
+    public Boolean pollCloudCommunication(boolean updateConfiguration) throws MillException {
+        CloudCommunicationResponse enabled;
+        try {
+            enabled = apiTool.getCloudCommunication(getHostname());
+            setOnline();
+        } catch (MillHTTPResponseException e) {
+            // API function not implemented
+            if (e.getHttpStatus() >= 400) {
+                if (logger.isTraceEnabled()) {
+                    logger.trace("Thing \"{}\" doesn't seem to support cloud communication setting", getThing().getUID());
+                }
+                return null;
+            }
+            throw e;
+        }
+        Boolean b;
+        if ((b = enabled.isEnabled()) != null) {
+            Thing thing = getThing();
+            configDescriptionProvider.enableDescriptions(thing.getUID(), CONFIG_PARAM_CLOUD_COMMUNICATION);
+            if (updateConfiguration) {
+                Configuration configuration = editConfiguration();
+                Object object = configuration.get(CONFIG_PARAM_CLOUD_COMMUNICATION);
+                if (!(object instanceof Boolean) || ((Boolean) object).booleanValue() != b.booleanValue()) {
+                    configuration.put(CONFIG_PARAM_CLOUD_COMMUNICATION, b);
+                    updateConfiguration(configuration);
+                }
+            }
+        }
+        return b;
+    }
+
+    @Nullable
+    public Boolean setCloudCommunication(Boolean enabled, boolean updateConfiguration) throws MillException {
+        Response response = apiTool.setCloudCommunication(getHostname(), enabled);
+        Boolean result = pollCloudCommunication(updateConfiguration);
+
+        // Set status after polling, or it will be overwritten
+        ResponseStatus responseStatus;
+        if ((responseStatus = response.getStatus()) != ResponseStatus.OK) {
+            logger.warn(
+                "Failed to set cloud communication to \"{}\": {}",
+                enabled,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+            setOnline(
+                ThingStatusDetail.COMMUNICATION_ERROR,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+        } else {
+            setOnline();
+        }
+        return result;
+    }
+
     public void sendReboot() throws MillException {
         Response response = null;
         try {
@@ -1237,6 +1293,7 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
             configuration.put(configurationParameter.getKey(), configurationParameter.getValue());
         }
 
+        boolean rebootRequired = false;
         boolean online = isOnline();
         if (modifiedParameters.contains(CONFIG_PARAM_TIMEZONE_OFFSET)) {
             if (online) {
@@ -1481,6 +1538,56 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                 );
             }
         }
+        if (modifiedParameters.contains(CONFIG_PARAM_CLOUD_COMMUNICATION)) {
+            if (online) {
+                try {
+                    boolean b = ((Boolean) configuration.get(CONFIG_PARAM_CLOUD_COMMUNICATION)).booleanValue();
+                    Boolean result = setCloudCommunication(b, false);
+                    if (result == null) {
+                        logger.warn(
+                            "A null cloud communication value was received when attempting to set ({})",
+                            b
+                        );
+                        setConfigParameterMessage(ConfigStatusMessage.Builder
+                            .error(CONFIG_PARAM_CLOUD_COMMUNICATION).withMessageKeySuffix("store-failed")
+                            .withArguments(Boolean.valueOf(b)).build());
+                        configuration.remove(CONFIG_PARAM_CLOUD_COMMUNICATION);
+                    } else if (result.booleanValue() != b) {
+                        logger.warn(
+                            "The device returned a different cloud communication value ({}) than " +
+                            "what was attempted set ({})",
+                            result,
+                            b
+                        );
+                        setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_CLOUD_COMMUNICATION).withMessageKeySuffix("store-failed")
+                                .withArguments(Boolean.valueOf(b)).build());
+                        configuration.put(CONFIG_PARAM_CLOUD_COMMUNICATION, result);
+                    } else {
+                        clearConfigParameterMessages(CONFIG_PARAM_TIMEZONE_OFFSET);
+                        rebootRequired = true;
+                    }
+                } catch (MillException e) {
+                    logger.warn(
+                        "An error occurred when trying to send cloud communication to {}: {}",
+                        getThing().getUID(),
+                        e.getMessage()
+                    );
+                    // Set old value
+                    Object object = getConfig().get(CONFIG_PARAM_CLOUD_COMMUNICATION);
+                    if (object instanceof Boolean) {
+                        configuration.put(CONFIG_PARAM_CLOUD_COMMUNICATION, object);
+                    } else {
+                        configuration.remove(CONFIG_PARAM_CLOUD_COMMUNICATION);
+                    }
+                    setConfigParameterMessage(ConfigStatusMessage.Builder
+                        .error(CONFIG_PARAM_CLOUD_COMMUNICATION).withMessageKeySuffix("store-failed-ex")
+                        .withArguments(e.getMessage()).build());
+                }
+            } else {
+                configuration.remove(CONFIG_PARAM_CLOUD_COMMUNICATION);
+            }
+        }
 
         if ((
                 modifiedParameters.contains(CONFIG_PARAM_HOSTNAME) ||
@@ -1502,6 +1609,19 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         ConfigStatusCallback confStatusCallback = configStatusCallback;
         if (confStatusCallback != null) { //TODO: (Nad) Is this needed? This is already sent in updateConfiguration above
             confStatusCallback.configUpdated(new ThingConfigStatusSource(getThing().getUID().getAsString()));
+        }
+        if (rebootRequired) {
+            scheduler.schedule(() -> {
+                try {
+                    sendReboot();
+                } catch (MillException e) {
+                    logger.warn(
+                        "Failed to reboot Thing \"{}\" after a configuration change that requires a reboot: {}",
+                        getThing().getUID(),
+                        e.getMessage()
+                    );
+                }
+            }, 1000, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -1613,6 +1733,7 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
 //                pollOilHeaterPower(); //TODO: (Nad) Oil only
                 pollTimeZoneOffset(true);
                 pollPIDParameters(true);
+                pollCloudCommunication(true);
             } catch (MillException e) {
                 setOffline(e);
             }

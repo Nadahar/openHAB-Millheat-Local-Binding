@@ -185,6 +185,16 @@ public class MillConfigDescriptionProviderImpl implements ConfigDescriptionProvi
                         );
                         result |= true;
                         break;
+                    case CONFIG_PARAM_CLOUD_COMMUNICATION:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.BOOLEAN)
+                            .withLabel("Enable Cloud Communication")
+                            .withDescription("Whether cloud communication is enabled in the device. Changing this will reboot the device.")
+                            .withGroupName("general").withAdvanced(true).withDefault("false").build()
+                        );
+                        result |= true;
+                        break;
                     default:
                         logger.warn(
                             "{} was asked to describe an unimlemented configuration parameter {}",
