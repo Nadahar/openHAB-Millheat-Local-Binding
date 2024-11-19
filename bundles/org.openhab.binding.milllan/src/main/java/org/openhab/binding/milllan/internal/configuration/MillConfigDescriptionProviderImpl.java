@@ -195,6 +195,28 @@ public class MillConfigDescriptionProviderImpl implements ConfigDescriptionProvi
                         );
                         result |= true;
                         break;
+                    case CONFIG_PARAM_HYSTERESIS_UPPER:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withMaximum(BigDecimal.valueOf(5L))
+                            .withStepSize(BigDecimal.valueOf(0.25)).withLabel("Hysteresis Upper")
+                            .withDescription("The upper limit: Set temperature + upper limit = stop heating.")
+                            .withGroupName("hysteresis").withAdvanced(true).withDefault("1").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_HYSTERESIS_LOWER:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withMaximum(BigDecimal.valueOf(5L))
+                            .withStepSize(BigDecimal.valueOf(0.25)).withLabel("Hysteresis Lower")
+                            .withDescription("The lower limit: Set temperature - lower limit = start heating.")
+                            .withGroupName("hysteresis").withAdvanced(true).withDefault("0.5").build()
+                        );
+                        result |= true;
+                        break;
                     default:
                         logger.warn(
                             "{} was asked to describe an unimlemented configuration parameter {}",

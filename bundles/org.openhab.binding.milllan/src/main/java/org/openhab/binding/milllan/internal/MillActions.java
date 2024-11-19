@@ -204,6 +204,59 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         }
     }
 
+    @ActionOutputs(value = {@ActionOutput(name = "result", type = "java.lang.String")})
+    @RuleAction(label = "@text/actions.milllan.set-hysteresis-parameters.label", description = "@text/actions.milllan.set-hysteresis-parameters.description")
+    public @ActionOutput(name = "result", type = "java.lang.String") Map<String, Object> setHysteresisParameters(
+        @Nullable @ActionInput(
+            name = "upper",
+            label = "@text/actions-input.milllan.set-hysteresis-parameters.upper.label",
+            description = "@text/actions-input.milllan.set-hysteresis-parameters.upper.description",
+            required = true
+        ) Double upper,
+        @Nullable @ActionInput(
+            name = "lower",
+            label = "@text/actions-input.milllan.set-hysteresis-parameters.lower.label",
+            description = "@text/actions-input.milllan.set-hysteresis-parameters.lower.description",
+            required = true
+        ) Double lower
+    ) {
+        Map<String, Object> result = new HashMap<>();
+        MillHandler handlerInst = handler;
+        if (handlerInst == null) {
+            logger.warn("Call to setHysteresisParameters Action failed because the handler was null");
+            result.put("result", "Failed: The handler is null");
+            return result;
+        }
+        if (upper == null || lower == null) {
+            logger.warn("Call to setHysteresisParameters Action failed because some parameters were null");
+            result.put("result", "All hysteresis parameters must be specified!");
+            return result;
+        }
+        try {
+            handlerInst.setHysteresisParameters(upper, lower, true);
+            result.put("result", "The hysteresis parameters were set.");
+            try {
+                handlerInst.sendReboot();
+            } catch (MillException e) {
+                logger.warn(
+                    "Failed to reboot device after setting hysteresis parameters on Thing {}: {}",
+                    handlerInst.getThing().getUID(),
+                    e.getMessage()
+                );
+                result.put("result", "Failed to execute reboot: " + e.getMessage());
+            }
+            return result;
+        } catch (MillException e) {
+            logger.warn(
+                "Failed to execute setHysteresisParameters Action on Thing {}: {}",
+                handlerInst.getThing().getUID(),
+                e.getMessage()
+            );
+            result.put("result", "Failed to execute setHysteresisParameters Action: " + e.getMessage());
+            return result;
+        }
+    }
+
     // Methods for Rules DSL rule support
 
     public static void sendReboot(ThingActions actions) {
@@ -227,5 +280,9 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
 
     public static void setCloudCommunication(ThingActions actions, Boolean enabled) {
         ((MillActions) actions).setCloudCommunication(enabled);
+    }
+
+    public static void setHysteresisParameters(ThingActions actions, Double upper, Double lower) {
+        ((MillActions) actions).setHysteresisParameters(upper, lower);
     }
 }
