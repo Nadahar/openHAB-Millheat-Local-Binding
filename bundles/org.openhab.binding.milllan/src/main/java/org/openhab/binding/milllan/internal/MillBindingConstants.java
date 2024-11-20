@@ -32,6 +32,10 @@ public class MillBindingConstants {
     // List of all Thing Type UIDs
     public static final ThingTypeUID THING_TYPE_PANEL_HEATER = new ThingTypeUID(BINDING_ID, "panel-heater");
 
+    // mDNS property names
+    public static final String MDNS_PROPERTY_ID = "id";
+    public static final String MDNS_PROPERTY_NAME = "name";
+
     // List of all Channel ids
     public static final String AMBIENT_TEMPERATURE = "ambient-temperature";
     public static final String RAW_AMBIENT_TEMPERATURE = "raw-ambient-temperature";
