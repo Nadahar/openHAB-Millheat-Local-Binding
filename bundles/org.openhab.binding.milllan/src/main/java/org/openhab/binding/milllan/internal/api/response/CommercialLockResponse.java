@@ -15,7 +15,6 @@ import org.openhab.binding.milllan.internal.api.ResponseStatus;
 @NonNullByDefault
 public class CommercialLockResponse implements Response { // TODO: (Nad) Header + JavaDocs
 
-
     /**
      * The commercial-lock status.
      */
