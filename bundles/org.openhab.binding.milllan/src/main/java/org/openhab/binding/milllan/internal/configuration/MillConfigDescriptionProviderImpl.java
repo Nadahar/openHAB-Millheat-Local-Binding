@@ -217,6 +217,28 @@ public class MillConfigDescriptionProviderImpl implements ConfigDescriptionProvi
                         );
                         result |= true;
                         break;
+                    case CONFIG_PARAM_COMMERCIAL_LOCK_MIN:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withMaximum(BigDecimal.valueOf(99L))
+                            .withStepSize(BigDecimal.valueOf(0.5)).withLabel("Commercial Lock Minimum Temperature")
+                            .withDescription("The minimum temperature that can be set while the commercial lock is active.")
+                            .withGroupName("commercialLock").withAdvanced(true).withDefault("21").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_COMMERCIAL_LOCK_MAX:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withMaximum(BigDecimal.valueOf(99L))
+                            .withStepSize(BigDecimal.valueOf(0.5)).withLabel("Commercial Lock Maximum Temperature")
+                            .withDescription("The maximum temperature that can be set while the commercial lock is active.")
+                            .withGroupName("commercialLock").withAdvanced(true).withDefault("23").build()
+                        );
+                        result |= true;
+                        break;
                     default:
                         logger.warn(
                             "{} was asked to describe an unimlemented configuration parameter {}",
