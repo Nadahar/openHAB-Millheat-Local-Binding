@@ -1010,6 +1010,30 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         return result;
     }
 
+    //Doc: Will return http status 503 if not in "independent device" mode
+    @Nullable
+    public ResponseStatus setTemperatureInIndependentMode(BigDecimal value) throws MillException {
+        Response response = apiTool.setTemperatureInIndependentMode(getHostname(), value);
+        pollControlStatus();
+
+        // Set status after polling, or it will be overwritten
+        ResponseStatus responseStatus;
+        if ((responseStatus = response.getStatus()) != ResponseStatus.OK) {
+            logger.warn(
+                "Failed to set temperature in \"independent device\" mode to \"{}\": {}",
+                value,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+            setOnline(
+                ThingStatusDetail.COMMUNICATION_ERROR,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+        } else {
+            setOnline();
+        }
+        return responseStatus;
+    }
+
     public void sendReboot() throws MillException {
         Response response = null;
         try {
