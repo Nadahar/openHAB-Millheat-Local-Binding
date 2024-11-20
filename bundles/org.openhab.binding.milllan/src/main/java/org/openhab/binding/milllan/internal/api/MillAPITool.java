@@ -528,6 +528,23 @@ public class MillAPITool { //TODO: (Nad) Header + JavaDocs
         );
     }
 
+    //Doc: Will fail unless the device is in "Independent device" mode
+    public Response setTemperatureInIndependentMode(String hostname, BigDecimal value) throws MillException {
+        JsonObject object = new JsonObject();
+        object.addProperty("temperature", value);
+        return request(
+            GenericResponse.class,
+            hostname,
+            null,
+            HttpMethod.POST,
+            "/set-temperature-in-independent-mode-now",
+            gson.toJson(object),
+            1L,
+            TimeUnit.SECONDS,
+            false
+        );
+    }
+
     //Doc: WILL time out - response is never sent
     public Response sendReboot(String hostname) throws MillException {
         return request(
