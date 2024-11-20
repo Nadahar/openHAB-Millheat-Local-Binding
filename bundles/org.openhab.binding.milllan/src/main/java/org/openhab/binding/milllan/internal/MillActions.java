@@ -1,11 +1,15 @@
 package org.openhab.binding.milllan.internal;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
+import org.openhab.binding.milllan.internal.api.ResponseStatus;
 import org.openhab.binding.milllan.internal.exception.MillException;
+import org.openhab.binding.milllan.internal.exception.MillHTTPResponseException;
 import org.openhab.core.automation.annotation.ActionInput;
 import org.openhab.core.automation.annotation.ActionOutput;
 import org.openhab.core.automation.annotation.ActionOutputs;
@@ -257,6 +261,70 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         }
     }
 
+    @ActionOutputs(value = {@ActionOutput(name = "result", type = "java.lang.String")})
+    @RuleAction(label = "@text/actions.milllan.set-independent-temperature.label", description = "@text/actions.milllan.set-independent-temperature.description")
+    public @ActionOutput(name = "result", type = "java.lang.String") Map<String, Object> setIndependentModeTemperature(
+        @Nullable @ActionInput(
+            name = "temperature",
+            label = "@text/actions-input.milllan.set-independent-temperature.temperature.label",
+            description = "@text/actions-input.milllan.set-independent-temperature.temperature.description",
+            required = true
+        ) Number temperature
+    ) {
+        Map<String, Object> result = new HashMap<>();
+        if (temperature == null) {
+            logger.warn("Call to setIndependentModeTemperature Action aborted because 'temperature' was null");
+            result.put("result", "Failed: The temperature parameter is null");
+            return result;
+        }
+        MillHandler handlerInst = handler;
+        if (handlerInst == null) {
+            logger.warn("Call to setIndependentModeTemperature Action failed because the handler was null");
+            result.put("result", "Failed: The handler is null");
+            return result;
+        }
+        try {
+            BigDecimal bdValue;
+            if (temperature instanceof BigDecimal) {
+                bdValue = (BigDecimal) temperature;
+            } else if (temperature instanceof BigInteger || temperature instanceof Integer || temperature instanceof Long) {
+                bdValue = BigDecimal.valueOf(temperature.intValue());
+            } else {
+                bdValue = BigDecimal.valueOf(temperature.doubleValue());
+            }
+            ResponseStatus responseStatus = handlerInst.setTemperatureInIndependentMode(bdValue);
+            if (responseStatus != ResponseStatus.OK) {
+                result.put("result", "Failed: " + (responseStatus == null ? "Missing response" : responseStatus.getDescription()));
+            } else {
+                result.put("result", "The \"independent device\" mode temperature was set to " + temperature);
+            }
+        } catch (MillHTTPResponseException e) {
+            if (e.getHttpStatus() == 503) {
+                logger.debug(
+                    "Execution of setIndependentModeTemperature Action on Thing {} resulted in HTTP status 503 - " +
+                    "Verify that the device is in \"independent device\" mode.",
+                    handlerInst.getThing().getUID()
+                );
+                result.put("result", "Failed: Verify that the device is in \"independent device\" mode.");
+            } else {
+                logger.warn(
+                    "Failed to execute setIndependentModeTemperature Action on Thing {}: {}",
+                    handlerInst.getThing().getUID(),
+                    e.getMessage()
+                );
+                result.put("result", "Failed to execute setIndependentModeTemperature Action: " + e.getMessage());
+            }
+        } catch (MillException e) {
+            logger.warn(
+                "Failed to execute setIndependentModeTemperature Action on Thing {}: {}",
+                handlerInst.getThing().getUID(),
+                e.getMessage()
+            );
+            result.put("result", "Failed to execute setIndependentModeTemperature Action: " + e.getMessage());
+        }
+        return result;
+    }
+
     // Methods for Rules DSL rule support
 
     public static void sendReboot(ThingActions actions) {
@@ -284,5 +352,9 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
 
     public static void setHysteresisParameters(ThingActions actions, Double upper, Double lower) {
         ((MillActions) actions).setHysteresisParameters(upper, lower);
+    }
+
+    public static void setIndependentModeTemperature(ThingActions actions, Double temperature) {
+        ((MillActions) actions).setIndependentModeTemperature(temperature);
     }
 }
