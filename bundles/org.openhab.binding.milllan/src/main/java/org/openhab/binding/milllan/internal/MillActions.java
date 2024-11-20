@@ -325,6 +325,45 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         return result;
     }
 
+    @ActionOutputs(value = {@ActionOutput(name = "result", type = "java.lang.String")})
+    @RuleAction(label = "@text/actions.milllan.set-custom-name.label", description = "@text/actions.milllan.set-custom-name.description")
+    public @ActionOutput(name = "result", type = "java.lang.String") Map<String, Object> setCustomName(
+        @Nullable @ActionInput(
+            name = "customName",
+            label = "@text/actions-input.milllan.set-custom-name.custom-name.label",
+            description = "@text/actions-input.milllan.set-custom-name.custom-name.description",
+            required = true
+        ) String customName
+    ) {
+        Map<String, Object> result = new HashMap<>();
+        MillHandler handlerInst = handler;
+        if (handlerInst == null) {
+            logger.warn("Call to setCustomName Action failed because the handler was null");
+            result.put("result", "Failed: The handler is null");
+            return result;
+        }
+        try {
+            ResponseStatus responseStatus = handlerInst.setCustomName(MillUtil.isBlank(customName) ? "" : customName);
+            if (responseStatus != ResponseStatus.OK) {
+                result.put("result", "Failed: " + (responseStatus == null ? "Missing response" : responseStatus.getDescription()));
+            } else {
+                if (MillUtil.isBlank(customName)) {
+                    result.put("result", "The custom device name was removed");
+                } else {
+                    result.put("result", "The custom device name was set to " + customName);
+                }
+            }
+        } catch (MillException e) {
+            logger.warn(
+                "Failed to execute setCustomName Action on Thing {}: {}",
+                handlerInst.getThing().getUID(),
+                e.getMessage()
+            );
+            result.put("result", "Failed to execute Action: " + e.getMessage());
+        }
+        return result;
+    }
+
     // Methods for Rules DSL rule support
 
     public static void sendReboot(ThingActions actions) {
@@ -356,5 +395,9 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
 
     public static void setIndependentModeTemperature(ThingActions actions, Double temperature) {
         ((MillActions) actions).setIndependentModeTemperature(temperature);
+    }
+
+    public static void setCustomName(ThingActions actions, String customName) {
+        ((MillActions) actions).setCustomName(customName);
     }
 }
