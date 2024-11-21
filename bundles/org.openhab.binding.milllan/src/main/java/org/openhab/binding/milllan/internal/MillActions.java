@@ -364,6 +364,67 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         return result;
     }
 
+    @ActionOutputs(value = {@ActionOutput(name = "result", type = "java.lang.String")})
+    @RuleAction(label = "@text/actions.milllan.set-open-window-parameters.label", description = "@text/actions.milllan.set-open-window-parameters.description")
+    public @ActionOutput(name = "result", type = "java.lang.String") Map<String, Object> setOpenWindowParameters(
+        @Nullable @ActionInput(
+            name = "dropTempThr",
+            label = "@text/actions-input.milllan.set-open-window-parameters.drop-temp-thr.label",
+            description = "@text/actions-input.milllan.set-open-window-parameters.drop-temp-thr.description",
+            required = true
+        ) Double dropTempThr,
+        @Nullable @ActionInput(
+            name = "dropTimeRange",
+            label = "@text/actions-input.milllan.set-open-window-parameters.drop-time-range.label",
+            description = "@text/actions-input.milllan.set-open-window-parameters.drop-time-range.description",
+            required = true
+        ) Integer dropTimeRange,
+        @Nullable @ActionInput(
+            name = "incTempThr",
+            label = "@text/actions-input.milllan.set-open-window-parameters.inc-temp-thr.label",
+            description = "@text/actions-input.milllan.set-open-window-parameters.inc-temp-thr.description",
+            required = true
+        ) Double incTempThr,
+        @Nullable @ActionInput(
+            name = "incTimeRange",
+            label = "@text/actions-input.milllan.set-open-window-parameters.inc-time-range.label",
+            description = "@text/actions-input.milllan.set-open-window-parameters.inc-time-range.description",
+            required = true
+        ) Integer incTimeRange,
+        @Nullable @ActionInput(
+            name = "maxTime",
+            label = "@text/actions-input.milllan.set-open-window-parameters.max-time.label",
+            description = "@text/actions-input.milllan.set-open-window-parameters.max-time.description",
+            required = true
+        ) Integer maxTime
+    ) {
+        Map<String, Object> result = new HashMap<>();
+        MillHandler handlerInst = handler;
+        if (handlerInst == null) {
+            logger.warn("Call to setOpenWindowParameters Action failed because the handler was null");
+            result.put("result", "Failed: The handler is null");
+            return result;
+        }
+        if (dropTempThr == null || dropTimeRange == null || incTempThr == null || incTimeRange == null || maxTime == null) {
+            logger.warn("Call to setOpenWindowParameters Action failed because some parameters were null");
+            result.put("result", "All open window parameters must be specified!");
+            return result;
+        }
+        try {
+            handlerInst.setOpenWindowParameters(dropTempThr, dropTimeRange, incTempThr, incTimeRange, maxTime, true);
+            result.put("result", "The open window parameters were set.");
+            return result;
+        } catch (MillException e) {
+            logger.warn(
+                "Failed to execute setOpenWindowParameters Action on Thing {}: {}",
+                handlerInst.getThing().getUID(),
+                e.getMessage()
+            );
+            result.put("result", "Failed to execute setOpenWindowParameters Action: " + e.getMessage());
+            return result;
+        }
+    }
+
     // Methods for Rules DSL rule support
 
     public static void sendReboot(ThingActions actions) {
@@ -399,5 +460,16 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
 
     public static void setCustomName(ThingActions actions, String customName) {
         ((MillActions) actions).setCustomName(customName);
+    }
+
+    public static void setOpenWindowParameters(
+        ThingActions actions,
+        Double dropTempThr,
+        Integer dropTimeRange,
+        Double incTempThr,
+        Integer incTimeRange,
+        Integer maxTime
+    ) {
+        ((MillActions) actions).setOpenWindowParameters(dropTempThr, dropTimeRange, incTempThr, incTimeRange, maxTime);
     }
 }
