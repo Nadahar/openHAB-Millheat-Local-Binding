@@ -47,6 +47,7 @@ import org.openhab.binding.milllan.internal.api.OperationMode;
 import org.openhab.binding.milllan.internal.api.PredictiveHeatingType;
 import org.openhab.binding.milllan.internal.api.ResponseStatus;
 import org.openhab.binding.milllan.internal.api.TemperatureType;
+import org.openhab.binding.milllan.internal.api.request.OpenWindowParameters;
 import org.openhab.binding.milllan.internal.api.response.ChildLockResponse;
 import org.openhab.binding.milllan.internal.api.response.CloudCommunicationResponse;
 import org.openhab.binding.milllan.internal.api.response.CommercialLockCustomizationResponse;
@@ -57,6 +58,7 @@ import org.openhab.binding.milllan.internal.api.response.DisplayUnitResponse;
 import org.openhab.binding.milllan.internal.api.response.HysteresisParametersResponse;
 import org.openhab.binding.milllan.internal.api.response.LimitedHeatingPowerResponse;
 import org.openhab.binding.milllan.internal.api.response.OilHeaterPowerResponse;
+import org.openhab.binding.milllan.internal.api.response.OpenWindowParametersResponse;
 import org.openhab.binding.milllan.internal.api.response.OperationModeResponse;
 import org.openhab.binding.milllan.internal.api.response.PIDParametersResponse;
 import org.openhab.binding.milllan.internal.api.response.PredictiveHeatingTypeResponse;
@@ -292,7 +294,18 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                         }
                     }
                     break;
-
+                case OPEN_WINDOW_ACTIVE:
+                    if (command instanceof RefreshType) {
+                        pollOpenWindow();
+                    }
+                    break;
+                case OPEN_WINDOW_ENABLED:
+                    if (command instanceof RefreshType) {
+                        pollOpenWindow();
+                    } else if (command instanceof OnOffType) {
+                        setOpenWindowEnabled(command == OnOffType.ON);
+                    }
+                    break;
             }
         } catch (MillException e) {
             setOffline(e);
@@ -1138,6 +1151,158 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         return result;
     }
 
+    public void pollOpenWindow() throws MillException {
+        OpenWindowParametersResponse params = apiTool.getOpenWindowParameters(getHostname());
+        setOnline();
+        Boolean b;
+        if ((b = params.getActiveNow()) != null) {
+            updateState(OPEN_WINDOW_ACTIVE, OnOffType.from(b.booleanValue()));
+        }
+        if ((b = params.getEnabled()) != null) {
+            updateState(OPEN_WINDOW_ENABLED, OnOffType.from(b.booleanValue()));
+        }
+    }
+
+    public void setOpenWindowEnabled(Boolean enabled) throws MillException {
+        OpenWindowParameters parameters = new OpenWindowParameters();
+        parameters.setEnabled(enabled);
+        String hostname = getHostname();
+        OpenWindowParametersResponse current = apiTool.getOpenWindowParameters(hostname);
+        if (!current.isComplete()) {
+            throw new MillException(
+                "Received incomplete data from \"/open-window\" API call",
+                ThingStatusDetail.COMMUNICATION_ERROR
+            );
+        }
+        Double d;
+        Integer i;
+        // Null-check silencers, the ifs below are always non-null
+        if ((d = current.getDropTemperatureThreshold()) != null) {
+            parameters.setDropTemperatureThreshold(d);
+        }
+        if ((i = current.getDropTimeRange()) != null) {
+            parameters.setDropTimeRange(i);
+        }
+        if ((d = current.getIncreaseTemperatureThreshold()) != null) {
+            parameters.setIncreaseTemperatureThreshold(d);
+        }
+        if ((i = current.getIncreaseTimeRange()) != null) {
+            parameters.setIncreaseTimeRange(i);
+        }
+        if ((i = current.getMaxTime()) != null) {
+            parameters.setMaxTime(i);
+        }
+        Response response = apiTool.setOpenWindowParameters(hostname, parameters);
+        pollOpenWindow();
+        pollControlStatus();
+
+        // Set status after polling, or it will be overwritten
+        ResponseStatus responseStatus;
+        if ((responseStatus = response.getStatus()) != ResponseStatus.OK) {
+            logger.warn(
+                "Failed to set open window enabled: {}",
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+            setOnline(
+                ThingStatusDetail.COMMUNICATION_ERROR,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+        } else {
+            setOnline();
+        }
+    }
+
+    @Nullable
+    public OpenWindowParametersResponse pollOpenWindowParameters(boolean updateConfiguration) throws MillException {
+        OpenWindowParametersResponse params;
+        try {
+            params = apiTool.getOpenWindowParameters(getHostname());
+            setOnline();
+        } catch (MillHTTPResponseException e) {
+            // API function not implemented
+            if (e.getHttpStatus() >= 400) {
+                if (logger.isTraceEnabled()) {
+                    logger.trace("Thing \"{}\" doesn't seem to support open window parameters", getThing().getUID());
+                }
+                return null;
+            }
+            throw e;
+        }
+        Boolean b;
+        if ((b = params.getActiveNow()) != null) {
+            updateState(OPEN_WINDOW_ACTIVE, OnOffType.from(b.booleanValue()));
+        }
+        if ((b = params.getEnabled()) != null) {
+            updateState(OPEN_WINDOW_ENABLED, OnOffType.from(b.booleanValue()));
+        }
+
+        if (params.isComplete()) {
+            enableOpenWindowDescriptions();
+        }
+        if (updateConfiguration) {
+            Configuration configuration = editConfiguration();
+            if (applyOpenWindowParamsResponseToConfig(params, configuration)) {
+                updateConfiguration(configuration);
+            }
+        }
+        return params;
+    }
+
+    @Nullable
+    public OpenWindowParametersResponse setOpenWindowParameters(
+        Number dropTemperatureThreshold,
+        Number dropTimeRange,
+        Number increaseTemperatureThreshold,
+        Number increaseTimeRange,
+        Number maxTime,
+        boolean updateConfiguration
+    ) throws MillException {
+        OpenWindowParameters parameters = new OpenWindowParameters();
+        parameters.setDropTemperatureThreshold(dropTemperatureThreshold instanceof Double ?
+            (Double) dropTemperatureThreshold :
+            dropTemperatureThreshold.doubleValue()
+        );
+        parameters.setDropTimeRange(dropTimeRange instanceof Integer ?
+            (Integer) dropTimeRange :
+            dropTimeRange.intValue()
+        );
+        String hostname = getHostname();
+        OpenWindowParametersResponse result = apiTool.getOpenWindowParameters(hostname);
+        Boolean b;
+        parameters.setEnabled((b = result.getEnabled()) == null ? Boolean.TRUE : b);
+        parameters.setIncreaseTemperatureThreshold(increaseTemperatureThreshold instanceof Double ?
+            (Double) increaseTemperatureThreshold :
+            increaseTemperatureThreshold.doubleValue()
+        );
+        parameters.setIncreaseTimeRange(increaseTimeRange instanceof Integer ?
+            (Integer) increaseTimeRange :
+            increaseTimeRange.intValue()
+        );
+        parameters.setMaxTime(maxTime instanceof Integer ?
+            (Integer) maxTime :
+            maxTime.intValue()
+        );
+        Response response = apiTool.setOpenWindowParameters(hostname, parameters);
+        result = pollOpenWindowParameters(updateConfiguration);
+        pollControlStatus();
+
+        // Set status after polling, or it will be overwritten
+        ResponseStatus responseStatus;
+        if ((responseStatus = response.getStatus()) != ResponseStatus.OK) {
+            logger.warn(
+                "Failed to set open-window parameters: {}",
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+            setOnline(
+                ThingStatusDetail.COMMUNICATION_ERROR,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+        } else {
+            setOnline();
+        }
+        return result;
+    }
+
     public void sendReboot() throws MillException {
         Response response = null;
         try {
@@ -1193,6 +1358,28 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         );
     }
 
+    protected void enableOpenWindowDescriptions() {
+        configDescriptionProvider.enableDescriptions(
+            thing.getUID(),
+            CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR,
+            CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE,
+            CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR,
+            CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE,
+            CONFIG_PARAM_OPEN_WINDOW_MAX_TIME
+        );
+    }
+
+    protected void disableOpenWindowDescriptions() {
+        configDescriptionProvider.disableDescriptions(
+            thing.getUID(),
+            CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR,
+            CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE,
+            CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR,
+            CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE,
+            CONFIG_PARAM_OPEN_WINDOW_MAX_TIME
+        );
+    }
+
     protected boolean applyPIDParamsResponseToConfig(PIDParametersResponse parametersResponse, Configuration configuration) {
         Double d;
         Object object;
@@ -1235,7 +1422,50 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         return result;
     }
 
-   protected synchronized boolean isOnline() {
+    protected boolean applyOpenWindowParamsResponseToConfig(OpenWindowParametersResponse parametersResponse, Configuration configuration) {
+        Double d;
+        Integer i;
+        Object object;
+        boolean result = false;
+        if ((d = parametersResponse.getDropTemperatureThreshold()) != null) {
+            object = configuration.get(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR);
+            if (!(object instanceof Number) || ((Number) object).doubleValue() != d.doubleValue()) {
+                configuration.put(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR, BigDecimal.valueOf(d));
+                result |= true;
+            }
+        }
+        if ((i = parametersResponse.getDropTimeRange()) != null) {
+            object = configuration.get(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE);
+            if (!(object instanceof Number) || ((Number) object).intValue() != i.intValue()) {
+                configuration.put(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE, BigDecimal.valueOf(i));
+                result |= true;
+            }
+        }
+        if ((d = parametersResponse.getIncreaseTemperatureThreshold()) != null) {
+            object = configuration.get(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR);
+            if (!(object instanceof Number) || ((Number) object).doubleValue() != d.doubleValue()) {
+                configuration.put(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR, BigDecimal.valueOf(d));
+                result |= true;
+            }
+        }
+        if ((i = parametersResponse.getIncreaseTimeRange()) != null) {
+            object = configuration.get(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE);
+            if (!(object instanceof Number) || ((Number) object).intValue() != i.intValue()) {
+                configuration.put(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE, BigDecimal.valueOf(i));
+                result |= true;
+            }
+        }
+        if ((i = parametersResponse.getMaxTime()) != null) {
+            object = configuration.get(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME);
+            if (!(object instanceof Number) || ((Number) object).intValue() != i.intValue()) {
+                configuration.put(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME, BigDecimal.valueOf(i));
+                result |= true;
+            }
+        }
+        return result;
+    }
+
+    protected synchronized boolean isOnline() {
         return isOnline;
     }
 
@@ -1968,6 +2198,202 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                 clearConfigParameterMessages(CONFIG_PARAM_COMMERCIAL_LOCK_MIN, CONFIG_PARAM_COMMERCIAL_LOCK_MAX);
             }
         }
+        if (
+            modifiedParameters.contains(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR) ||
+            modifiedParameters.contains(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE) ||
+            modifiedParameters.contains(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR) ||
+            modifiedParameters.contains(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE) ||
+            modifiedParameters.contains(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME)
+        ) {
+            if (online) {
+                Object dropTempThr = configuration.get(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR);
+                Object dropTimeRange = configuration.get(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE);
+                Object incTempThr = configuration.get(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR);
+                Object incTimeRange = configuration.get(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE);
+                Object maxTime = configuration.get(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME);
+                if (
+                    dropTempThr instanceof Number &&
+                    dropTimeRange instanceof Number &&
+                    incTempThr instanceof Number &&
+                    incTimeRange instanceof Number &&
+                    maxTime instanceof Number
+                ) {
+                    try {
+                        OpenWindowParametersResponse result = setOpenWindowParameters(
+                            (Number) dropTempThr,
+                            (Number) dropTimeRange,
+                            (Number) incTempThr,
+                            (Number) incTimeRange,
+                            (Number) maxTime,
+                            false
+                        );
+                        Double d;
+                        Integer i;
+                        if (result == null || !result.isComplete()) {
+                            logger.warn("An empty or partial response was received after setting open window parameters");
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR)
+                                .withMessageKeySuffix("store-failed-open-window").build());
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE)
+                                .withMessageKeySuffix("store-failed-open-window").build());
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR)
+                                .withMessageKeySuffix("store-failed-open-window").build());
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE)
+                                .withMessageKeySuffix("store-failed-open-window").build());
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME)
+                                .withMessageKeySuffix("store-failed-open-window").build());
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR);
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE);
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR);
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE);
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME);
+                        } else if ((d = result.getDropTemperatureThreshold()) != null && d.doubleValue() != ((Number) dropTempThr).doubleValue()) {
+                            logger.warn(
+                                "The device returned a different drop temperature threshold ({}) than what was attempted set ({})",
+                                d,
+                                dropTempThr
+                            );
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR).withMessageKeySuffix("store-failed")
+                                .withArguments(dropTempThr).build());
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR, BigDecimal.valueOf(d));
+                        } else if ((i = result.getDropTimeRange()) != null && i.intValue() != ((Number) dropTimeRange).intValue()) {
+                            logger.warn(
+                                "The device returned a different drop time range ({}) than what was attempted set ({})",
+                                i,
+                                dropTimeRange
+                            );
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE).withMessageKeySuffix("store-failed")
+                                .withArguments(dropTimeRange).build());
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE, BigDecimal.valueOf(i));
+                        } else if ((d = result.getIncreaseTemperatureThreshold()) != null && d.doubleValue() != ((Number) incTempThr).doubleValue()) {
+                            logger.warn(
+                                "The device returned a different increase temperature threshold ({}) than what was attempted set ({})",
+                                d,
+                                incTempThr
+                            );
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR).withMessageKeySuffix("store-failed")
+                                .withArguments(incTempThr).build());
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR, BigDecimal.valueOf(d));
+                        } else if ((i = result.getIncreaseTimeRange()) != null && i.intValue() != ((Number) incTimeRange).intValue()) {
+                            logger.warn(
+                                "The device returned a different increase time range value ({}) than what was attempted set ({})",
+                                i,
+                                incTimeRange
+                            );
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE).withMessageKeySuffix("store-failed")
+                                .withArguments(incTimeRange).build());
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE, BigDecimal.valueOf(i));
+                        } else if ((i = result.getMaxTime()) != null && i.intValue() != ((Number) maxTime).intValue()) {
+                            logger.warn(
+                                "The device returned a different max time value ({}) than what was attempted set ({})",
+                                i,
+                                maxTime
+                            );
+                            setConfigParameterMessage(ConfigStatusMessage.Builder
+                                .error(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME).withMessageKeySuffix("store-failed")
+                                .withArguments(maxTime).build());
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME, BigDecimal.valueOf(i));
+                        } else {
+                            clearConfigParameterMessages(
+                                CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR,
+                                CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE,
+                                CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR,
+                                CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE,
+                                CONFIG_PARAM_OPEN_WINDOW_MAX_TIME
+                            );
+                        }
+                    } catch (MillException e) {
+                        logger.warn(
+                            "An error occurred when trying to send open window paramteres to {}: {}",
+                            getThing().getUID(),
+                            e.getMessage()
+                        );
+                        // Set old value
+                        Object object = getConfig().get(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR);
+                        if (object instanceof Number) {
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR, object);
+                        } else {
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR);
+                        }
+                        setConfigParameterMessage(ConfigStatusMessage.Builder
+                            .error(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR).withMessageKeySuffix("store-failed-ex")
+                            .withArguments(e.getMessage()).build());
+                        object = getConfig().get(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE);
+                        if (object instanceof Number) {
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE, object);
+                        } else {
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE);
+                        }
+                        setConfigParameterMessage(ConfigStatusMessage.Builder
+                            .error(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE).withMessageKeySuffix("store-failed-ex")
+                            .withArguments(e.getMessage()).build());
+                        object = getConfig().get(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR);
+                        if (object instanceof Number) {
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR, object);
+                        } else {
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR);
+                        }
+                        setConfigParameterMessage(ConfigStatusMessage.Builder
+                            .error(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR).withMessageKeySuffix("store-failed-ex")
+                            .withArguments(e.getMessage()).build());
+                        object = getConfig().get(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE);
+                        if (object instanceof Number) {
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE, object);
+                        } else {
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE);
+                        }
+                        setConfigParameterMessage(ConfigStatusMessage.Builder
+                            .error(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE).withMessageKeySuffix("store-failed-ex")
+                            .withArguments(e.getMessage()).build());
+                        object = getConfig().get(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME);
+                        if (object instanceof Number) {
+                            configuration.put(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME, object);
+                        } else {
+                            configuration.remove(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME);
+                        }
+                        setConfigParameterMessage(ConfigStatusMessage.Builder
+                            .error(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME).withMessageKeySuffix("store-failed-ex")
+                            .withArguments(e.getMessage()).build());
+                    }
+                } else {
+                    logger.warn(
+                        "Failed to send open window parameters to {} because some parameters are missing",
+                        getThing().getUID()
+                    );
+                    setConfigParameterMessage(ConfigStatusMessage.Builder
+                        .error(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR).withMessageKeySuffix("incomplete-parameters-open-window").build());
+                    setConfigParameterMessage(ConfigStatusMessage.Builder
+                        .error(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE).withMessageKeySuffix("incomplete-parameters-open-window").build());
+                    setConfigParameterMessage(ConfigStatusMessage.Builder
+                        .error(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR).withMessageKeySuffix("incomplete-parameters-open-window").build());
+                    setConfigParameterMessage(ConfigStatusMessage.Builder
+                        .error(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE).withMessageKeySuffix("incomplete-parameters-open-window").build());
+                    setConfigParameterMessage(ConfigStatusMessage.Builder
+                        .error(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME).withMessageKeySuffix("incomplete-parameters-open-window").build());
+                }
+            } else {
+                configuration.remove(CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR);
+                configuration.remove(CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE);
+                configuration.remove(CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR);
+                configuration.remove(CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE);
+                configuration.remove(CONFIG_PARAM_OPEN_WINDOW_MAX_TIME);
+                clearConfigParameterMessages(
+                    CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR,
+                    CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE,
+                    CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR,
+                    CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE,
+                    CONFIG_PARAM_OPEN_WINDOW_MAX_TIME
+                );
+            }
+        }
 
         if ((
                 modifiedParameters.contains(CONFIG_PARAM_HOSTNAME) ||
@@ -2092,6 +2518,7 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                 pollSetTemperature(SLEEP_SET_TEMPERATURE, TemperatureType.SLEEP);
                 pollSetTemperature(AWAY_SET_TEMPERATURE, TemperatureType.AWAY);
                 pollChildLock();
+                pollOpenWindow();
             } catch (MillException e) {
                 setOffline(e);
             }
@@ -2125,6 +2552,7 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                  * If enabled, pollCommercialLock() can be disabled, as the commercial lock state is also
                  * fetched in pollCommercialLockCustomization()
                  */
+                pollOpenWindowParameters(true); //TODO: (Nad) Which models?
             } catch (MillException e) {
                 setOffline(e);
             }

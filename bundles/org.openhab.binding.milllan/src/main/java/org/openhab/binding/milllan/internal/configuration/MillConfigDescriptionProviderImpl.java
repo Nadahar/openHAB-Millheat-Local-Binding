@@ -239,6 +239,61 @@ public class MillConfigDescriptionProviderImpl implements ConfigDescriptionProvi
                         );
                         result |= true;
                         break;
+                    case CONFIG_PARAM_OPEN_WINDOW_DROP_TEMP_THR:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withMaximum(BigDecimal.valueOf(99L)).withUnit("Cel")
+                            .withStepSize(BigDecimal.valueOf(0.25)).withLabel("Drop Temperature Threshold")
+                            .withDescription("The temperature drop required to trigger (activate) the open window function.")
+                            .withGroupName("openWindowFunction").withAdvanced(true).withDefault("5").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_OPEN_WINDOW_DROP_TIME_RANGE:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.INTEGER)
+                            .withMinimum(BigDecimal.valueOf(0L)).withUnit("s")
+                            .withStepSize(BigDecimal.valueOf(1)).withLabel("Drop Time Range")
+                            .withDescription("The time range for which a drop in temperature will be evaluated.")
+                            .withGroupName("openWindowFunction").withAdvanced(true).withDefault("900").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_OPEN_WINDOW_INC_TEMP_THR:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.DECIMAL)
+                            .withMinimum(BigDecimal.valueOf(0L)).withMaximum(BigDecimal.valueOf(99L)).withUnit("Cel")
+                            .withStepSize(BigDecimal.valueOf(0.25)).withLabel("Increase Temperature Threshold")
+                            .withDescription("The temperature increase required to deactivate the open window function.")
+                            .withGroupName("openWindowFunction").withAdvanced(true).withDefault("3").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_OPEN_WINDOW_INC_TIME_RANGE:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.INTEGER)
+                            .withMinimum(BigDecimal.valueOf(0L)).withUnit("s")
+                            .withStepSize(BigDecimal.valueOf(1)).withLabel("Increase Time Range")
+                            .withDescription("The time range for which a increase in temperature will be evaluated.")
+                            .withGroupName("openWindowFunction").withAdvanced(true).withDefault("900").build()
+                        );
+                        result |= true;
+                        break;
+                    case CONFIG_PARAM_OPEN_WINDOW_MAX_TIME:
+                        thingMap.put(
+                            configParameterName,
+                            ConfigDescriptionParameterBuilder.create(configParameterName, Type.INTEGER)
+                            .withMinimum(BigDecimal.valueOf(0L)).withUnit("s")
+                            .withStepSize(BigDecimal.valueOf(1)).withLabel("Maximum Time")
+                            .withDescription("The maximum time the open window function will remain active.")
+                            .withGroupName("openWindowFunction").withAdvanced(true).withDefault("3600").build()
+                        );
+                        result |= true;
+                        break;
                     default:
                         logger.warn(
                             "{} was asked to describe an unimlemented configuration parameter {}",
