@@ -1529,7 +1529,7 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         clearConfigParameterMessages(CONFIG_PARAM_HOSTNAME);
 
         // Clear dynamic configuration parameters and properties
-        Map<String, String> properties = editProperties();
+        Map<String, String> properties = editProperties(); //TODO: (Nad) Only if wasn't online
         for (String property : PROPERTIES_DYNAMIC) {
             properties.remove(property);
         }
