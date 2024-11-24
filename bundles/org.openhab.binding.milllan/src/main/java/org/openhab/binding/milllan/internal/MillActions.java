@@ -425,6 +425,43 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         }
     }
 
+    @ActionOutputs(value = {@ActionOutput(name = "result", type = "java.lang.String")})
+    @RuleAction(label = "@text/actions.milllan.set-api-key.label", description = "@text/actions.milllan.set-api-key.description")
+    public @ActionOutput(name = "result", type = "java.lang.String") Map<String, Object> setAPIKey(
+        @ActionInput(
+            name = "apiKey",
+            label = "@text/actions-input.milllan.set-api-key.key.label",
+            description = "@text/actions-input.milllan.set-api-key.key.description",
+            required = true
+        ) String apiKey
+    ) {
+        Map<String, Object> result = new HashMap<>();
+        MillHandler handlerInst = handler;
+        if (handlerInst == null) {
+            logger.warn("Call to setAPIKey Action failed because the handler was null");
+            result.put("result", "Failed: The handler is null");
+            return result;
+        }
+        if (MillUtil.isBlank(apiKey)) {
+            logger.warn("Call to setAPIKey Action failed because the API key was blank");
+            result.put("result", "Failed: The API key is blank");
+            return result;
+        }
+        try {
+            handlerInst.setAPIKey(apiKey);
+            result.put("result", "The device is rebooting.");
+            return result;
+        } catch (MillException e) {
+            logger.warn(
+                "Failed to execute setAPIKey Action on Thing {}: {}",
+                handlerInst.getThing().getUID(),
+                e.getMessage()
+            );
+            result.put("result", "Failed to execute setAPIKey Action: " + e.getMessage());
+            return result;
+        }
+    }
+
     // Methods for Rules DSL rule support
 
     public static void sendReboot(ThingActions actions) {
@@ -471,5 +508,9 @@ public class MillActions implements ThingActions { //TODO: (Nad) Header + Javado
         Integer maxTime
     ) {
         ((MillActions) actions).setOpenWindowParameters(dropTempThr, dropTimeRange, incTempThr, incTimeRange, maxTime);
+    }
+
+    public static void setAPIKey(ThingActions actions, String apiKey) {
+        ((MillActions) actions).setAPIKey(apiKey);
     }
 }
