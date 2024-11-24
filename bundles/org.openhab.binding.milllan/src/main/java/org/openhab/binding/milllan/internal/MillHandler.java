@@ -1306,6 +1306,47 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         return result;
     }
 
+    //Doc: The device API doesn't support null or blank keys, so they are forbidden
+    public void setAPIKey(String apiKey) throws MillException {
+        if (apiKey.isBlank()) {
+            throw new MillException("API key cannot be blank");
+        }
+        Response response = null;
+        try {
+            response = apiTool.setAPIKey(getHostname(), getAPIKey(), apiKey);
+        } catch (MillException e) {
+            if (!(e.getCause() instanceof TimeoutException)) {
+                throw e;
+            }
+        }
+        ResponseStatus responseStatus;
+        if (response != null && (responseStatus = response.getStatus()) != ResponseStatus.OK) {
+            logger.warn(
+                "Failed to set API key for \"{}\": {}",
+                getThing().getUID(),
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+            setOnline(
+                ThingStatusDetail.COMMUNICATION_ERROR,
+                responseStatus == null ? null : responseStatus.getDescription()
+            );
+        } else {
+            // Automatically update the configuration with the new key so that communication can be reestablished
+            Configuration configuration = editConfiguration();
+            configuration.put(CONFIG_PARAM_API_KEY, apiKey);
+            updateConfiguration(configuration);
+            setOffline(ThingStatusDetail.CONFIGURATION_PENDING, "Device is rebooting");
+
+            // The devices reboots relatively quickly, so let's do a couple off one-off
+            // offline polls to set it online again quickly
+            InetAddress[] addresses = resolveOfflineAddresses();
+            if (addresses != null) {
+                scheduler.schedule(new PingOffline(addresses), 8L, TimeUnit.SECONDS);
+                scheduler.schedule(new PingOffline(addresses), 12L, TimeUnit.SECONDS);
+            }
+        }
+    }
+
     public void sendReboot() throws MillException {
         Response response = null;
         try {
