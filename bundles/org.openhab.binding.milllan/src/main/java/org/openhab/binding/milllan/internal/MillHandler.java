@@ -1526,8 +1526,9 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
 
     protected void setOnline(@Nullable ThingStatusDetail statusDetail, @Nullable String description) {
         boolean isError = statusDetail != null && statusDetail != ThingStatusDetail.NONE;
+        boolean wasOnline;
         synchronized (this) {
-            if (isOnline && !isError && !onlineWithError) {
+            if ((wasOnline = isOnline) && !isError && !onlineWithError) {
                 return;
             }
             isOnline = true;
@@ -1535,17 +1536,19 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         }
         clearConfigParameterMessages(CONFIG_PARAM_HOSTNAME);
 
-        // Clear dynamic configuration parameters and properties
-        Map<String, String> properties = editProperties(); //TODO: (Nad) Only if wasn't online
-        for (String property : PROPERTIES_DYNAMIC) {
-            properties.remove(property);
+        if (!wasOnline) {
+            // Clear dynamic configuration parameters and properties
+            Map<String, String> properties = editProperties();
+            for (String property : PROPERTIES_DYNAMIC) {
+                properties.remove(property);
+            }
+            updateProperties(properties);
+            Configuration configuration = editConfiguration();
+            for (String parameter : CONFIG_DYNAMIC_PARAMETERS) {
+                configuration.remove(parameter);
+            }
+            updateConfiguration(configuration);
         }
-        updateProperties(properties);
-        Configuration configuration = editConfiguration();
-        for (String parameter : CONFIG_DYNAMIC_PARAMETERS) {
-            configuration.remove(parameter);
-        }
-        updateConfiguration(configuration);
 
         if (isError && statusDetail != null) {
             updateStatus(ThingStatus.ONLINE, statusDetail, description);
