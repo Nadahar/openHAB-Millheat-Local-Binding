@@ -1347,7 +1347,7 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
         }
     }
 
-    public void sendReboot() throws MillException {
+    public void sendReboot() throws MillException { //TODO: (Nad) DOn't poll child lock and window - set them from control status instead..?
         Response response = null;
         try {
             response = apiTool.sendReboot(getHostname(), getAPIKey());
