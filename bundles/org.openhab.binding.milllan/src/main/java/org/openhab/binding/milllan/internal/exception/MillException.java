@@ -10,16 +10,20 @@ public class MillException extends Exception { //TODO: (Nad) Header + JavaDocs +
     private static final long serialVersionUID = 1L;
 
     @Nullable
-    protected ThingStatusDetail thingStatusDetail;
+    protected final ThingStatusDetail thingStatusDetail;
     @Nullable
-    protected String thingStatusDescription;
+    protected final String thingStatusDescription;
 
     public MillException(@Nullable String message) {
         super(message);
+        this.thingStatusDetail = null;
+        this.thingStatusDescription = null;
     }
 
     public MillException(@Nullable String message, @Nullable Throwable cause) {
         super(message, cause);
+        this.thingStatusDetail = null;
+        this.thingStatusDescription = null;
     }
 
     public MillException(@Nullable String message, @Nullable ThingStatusDetail thingStatusDetail) {
@@ -27,6 +31,8 @@ public class MillException extends Exception { //TODO: (Nad) Header + JavaDocs +
         this.thingStatusDetail = thingStatusDetail;
         if (thingStatusDetail != null && thingStatusDetail != ThingStatusDetail.NONE) {
             this.thingStatusDescription = message;
+        } else {
+            this.thingStatusDescription = null;
         }
     }
 
@@ -39,6 +45,8 @@ public class MillException extends Exception { //TODO: (Nad) Header + JavaDocs +
         this.thingStatusDetail = thingStatusDetail;
         if (thingStatusDetail != null && thingStatusDetail != ThingStatusDetail.NONE) {
             this.thingStatusDescription = message;
+        } else {
+            this.thingStatusDescription = null;
         }
     }
 
