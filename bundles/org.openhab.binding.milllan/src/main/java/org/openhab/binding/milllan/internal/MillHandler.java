@@ -134,6 +134,9 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
     @Nullable
     protected ScheduledFuture<?> offlinePollTask;
 
+    // Must be synced on pollingLock
+    protected boolean isDisposed = true;
+
     protected final MillAPITool apiTool;
 
     public MillHandler(
@@ -315,6 +318,9 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
     @Override
     public void initialize() {
         logger.trace("Initializing Thing handler {}", this);
+        synchronized (pollingLock) {
+            isDisposed = false;
+        }
         updateStatus(ThingStatus.UNKNOWN);
         scheduler.execute(new Initializer());
     }
@@ -338,6 +344,7 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                 future.cancel(true);
                 offlinePollTask = null;
             }
+            isDisposed = true;
         }
         synchronized (this) {
             isOnline = false;
@@ -1565,10 +1572,10 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                 future.cancel(true);
                 offlinePollTask = null;
             }
-            if ((future = frequentPollTask) == null || future.isDone()) {
+            if (!isDisposed && ((future = frequentPollTask) == null || future.isDone())) {
                 frequentPollTask = scheduler.scheduleWithFixedDelay(new PollFrequent(), 0L, refreshInterval, TimeUnit.SECONDS);
             }
-            if ((future = infrequentPollTask) == null || future.isDone()) {
+            if (!isDisposed && ((future = infrequentPollTask) == null || future.isDone())) {
                 infrequentPollTask = scheduler.scheduleWithFixedDelay(new PollInfrequent(), 700L, refreshInterval * 10000L, TimeUnit.MILLISECONDS); //TODO: (Nad) Separate parameter?
             }
         }
@@ -1640,7 +1647,12 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                     future.cancel(true);
                     infrequentPollTask = null;
                 }
-                if (addresses != null && refreshInterval > 0 && ((future = offlinePollTask) == null || future.isDone())) {
+                if (
+                    !isDisposed &&
+                    addresses != null &&
+                    refreshInterval > 0 &&
+                    ((future = offlinePollTask) == null || future.isDone())
+                ) {
                     logger.debug("Mill device \"{}\" is offline, starting offline polling", getThing().getUID());
                     offlinePollTask = scheduler.scheduleWithFixedDelay(
                         new PingOffline(addresses),
@@ -2635,6 +2647,11 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
             for (InetAddress address : addresses) {
                 try {
                     if (address.isReachable(1000)) {
+                        logger.trace(
+                            "Mill device \"{}\" is reachable on {}, attempting to contact API",
+                            getThing().getUID(),
+                            address.getHostAddress()
+                        );
                         scheduler.execute(() -> {
                             try {
                                 pollControlStatus();
@@ -2642,6 +2659,12 @@ public class MillHandler extends BaseThingHandler implements ConfigStatusProvide
                                 setOffline(e);
                             }
                         });
+                    } else {
+                        logger.debug(
+                            "Mill device \"{}\" is not reachable on {}",
+                            getThing().getUID(),
+                            address.getHostAddress()
+                        );
                     }
                 } catch (IOException e) {
                     logger.trace(
