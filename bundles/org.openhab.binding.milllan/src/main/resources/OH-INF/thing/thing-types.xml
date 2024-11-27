@@ -54,7 +54,7 @@
 			</parameter-group>
 			<parameter-group name="hysteresis">
 				<label>Hysteresis</label>
-				<description>Note: Device will reboot when hysteresis parameters are changed</description>
+				<description>Note: Device will reboot if hysteresis parameters are changed</description>
 				<advanced>true</advanced>
 			</parameter-group>
 			<parameter-group name="commercialLock">
