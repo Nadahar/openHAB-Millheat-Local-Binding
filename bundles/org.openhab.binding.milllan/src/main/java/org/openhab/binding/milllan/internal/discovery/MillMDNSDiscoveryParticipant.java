@@ -4,7 +4,6 @@ import static org.openhab.binding.milllan.internal.MillBindingConstants.*;
 
 import java.io.IOException;
 import java.net.InetAddress;
-import java.util.Dictionary;
 import java.util.Locale;
 import java.util.Set;
 
@@ -14,15 +13,17 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
 import org.openhab.core.config.discovery.DiscoveryResult;
 import org.openhab.core.config.discovery.DiscoveryResultBuilder;
-import org.openhab.core.config.discovery.DiscoveryService;
 import org.openhab.core.config.discovery.mdns.MDNSDiscoveryParticipant;
+import org.openhab.core.i18n.LocaleProvider;
+import org.openhab.core.i18n.TranslationProvider;
 import org.openhab.core.thing.Thing;
 import org.openhab.core.thing.ThingTypeUID;
 import org.openhab.core.thing.ThingUID;
+import org.osgi.framework.Bundle;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
-import org.osgi.service.component.annotations.Modified;
+import org.osgi.service.component.annotations.Reference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,30 +35,21 @@ public class MillMDNSDiscoveryParticipant implements MDNSDiscoveryParticipant { 
 
     private final Logger logger = LoggerFactory.getLogger(MillMDNSDiscoveryParticipant.class);
 
-    private boolean isAutoDiscoveryEnabled = true;
+    private final Bundle bundle;
+
+    private final TranslationProvider i18nProvider;
+
+    private final LocaleProvider localeProvider;
 
     @Activate
-    public MillMDNSDiscoveryParticipant() {
-    }
-
-    @Activate
-    protected void activate(ComponentContext componentContext) {
-        activateOrModifyService(componentContext);
-    }
-
-    @Modified
-    protected void modified(ComponentContext componentContext) {
-        activateOrModifyService(componentContext);
-    }
-
-    private void activateOrModifyService(ComponentContext componentContext) {
-        Dictionary<String, @Nullable Object> properties = componentContext.getProperties();
-        String autoDiscoveryPropertyValue = (String) properties.get(
-            DiscoveryService.CONFIG_PROPERTY_BACKGROUND_DISCOVERY
-        );
-        if (autoDiscoveryPropertyValue != null && !autoDiscoveryPropertyValue.isBlank()) {
-            isAutoDiscoveryEnabled = Boolean.valueOf(autoDiscoveryPropertyValue);
-        }
+    public MillMDNSDiscoveryParticipant(
+        ComponentContext componentContext,
+        @Reference TranslationProvider i18nProvider,
+        @Reference LocaleProvider localeProvider
+    ) {
+        this.i18nProvider = i18nProvider;
+        this.localeProvider = localeProvider;
+        this.bundle = componentContext.getBundleContext().getBundle();
     }
 
     @Override
@@ -72,16 +64,19 @@ public class MillMDNSDiscoveryParticipant implements MDNSDiscoveryParticipant { 
 
     @Override
     public @Nullable DiscoveryResult createResult(ServiceInfo service) {
-        if (isAutoDiscoveryEnabled) {
-            ThingUID uid = getThingUID(service);
-            if (uid != null) {
-                DiscoveryResultBuilder builder = DiscoveryResultBuilder.create(uid);
-                builder.withLabel("Mill " + service.getPropertyString(MDNS_PROPERTY_NAME))
-                    .withProperty(CONFIG_PARAM_HOSTNAME, resolveIPAddress(service.getInetAddresses()))
-                    .withProperty(Thing.PROPERTY_MAC_ADDRESS, formatMACAddress(uid.getId()))
-                    .withRepresentationProperty(Thing.PROPERTY_MAC_ADDRESS);
-                return builder.build();
-            }
+        ThingUID uid = getThingUID(service);
+        if (uid != null) {
+            String label = i18nProvider.getText(
+                bundle,
+                "discovery.milllan.panel-heater.label",
+                "Mill Panel Heater",
+                localeProvider.getLocale()
+            );
+            DiscoveryResultBuilder builder = DiscoveryResultBuilder.create(uid)
+                .withLabel(label).withProperty(CONFIG_PARAM_HOSTNAME, resolveIPAddress(service.getInetAddresses()))
+                .withProperty(Thing.PROPERTY_MAC_ADDRESS, formatMACAddress(uid.getId()))
+                .withRepresentationProperty(Thing.PROPERTY_MAC_ADDRESS);
+            return builder.build();
         }
         return null;
     }
