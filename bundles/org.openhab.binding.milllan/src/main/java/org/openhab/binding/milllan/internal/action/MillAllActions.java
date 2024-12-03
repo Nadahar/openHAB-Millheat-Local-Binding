@@ -302,8 +302,8 @@ public class MillAllActions extends MillBaseActions {
      * Attempts to set the {@code hysteresis parameters} in the device.
      *
      * @param actions the {@link ThingActions} instance.
-     * @param upper the upper hysteresis limit in 째C.
-     * @param lower the lower hysteresis limit in 째C.
+     * @param upper the upper hysteresis limit in 캜.
+     * @param lower the lower hysteresis limit in 캜.
      */
     public static void setHysteresisParameters(ThingActions actions, Double upper, Double lower) {
         ((MillAllActions) actions).setHysteresisParameters(upper, lower);
@@ -315,7 +315,7 @@ public class MillAllActions extends MillBaseActions {
      * <b>Note:</b> This command will <i>only</i> work if the device is in "independent device" mode.
      *
      * @param actions the {@link ThingActions} instance.
-     * @param temperature the set-temperature in 째C.
+     * @param temperature the set-temperature in 캜.
      */
     public static void setIndependentModeTemperature(ThingActions actions, Double temperature) {
         ((MillAllActions) actions).setIndependentModeTemperature(temperature);
@@ -336,10 +336,10 @@ public class MillAllActions extends MillBaseActions {
      *
      * @param actions the {@link ThingActions} instance.
      * @param dropTempThr the temperature drop required to trigger (activate) the open
-     *        window function in 째C.
+     *        window function in 캜.
      * @param dropTimeRange the time range for which a drop in temperature will be evaluated in seconds.
      * @param incTempThr the temperature increase required to deactivate the open window
-     *        function in 째C.
+     *        function in 캜.
      * @param incTimeRange the time range for which an increase in temperature will be evaluated in seconds.
      * @param maxTime the maximum time the open window function will remain active.
      */

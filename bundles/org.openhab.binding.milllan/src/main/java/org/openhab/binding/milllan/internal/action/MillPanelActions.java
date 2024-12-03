@@ -277,7 +277,7 @@ public class MillPanelActions extends MillBaseActions {
      * <b>Note:</b> This command will <i>only</i> work if the device is in "independent device" mode.
      *
      * @param actions the {@link ThingActions} instance.
-     * @param temperature the set-temperature in Â°C.
+     * @param temperature the set-temperature in °C.
      */
     public static void setIndependentModeTemperature(ThingActions actions, Double temperature) {
         ((MillAllActions) actions).setIndependentModeTemperature(temperature);
@@ -298,10 +298,10 @@ public class MillPanelActions extends MillBaseActions {
      *
      * @param actions the {@link ThingActions} instance.
      * @param dropTempThr the temperature drop required to trigger (activate) the open
-     *        window function in Â°C.
+     *        window function in °C.
      * @param dropTimeRange the time range for which a drop in temperature will be evaluated in seconds.
      * @param incTempThr the temperature increase required to deactivate the open window
-     *        function in Â°C.
+     *        function in °C.
      * @param incTimeRange the time range for which an increase in temperature will be evaluated in seconds.
      * @param maxTime the maximum time the open window function will remain active.
      */
